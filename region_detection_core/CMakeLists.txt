@@ -115,6 +115,8 @@ install(DIRECTORY include/
 
 install(FILES package.xml DESTINATION share/${PROJECT_NAME})
 
+install(TARGETS threshold_grayscale_test threshold_in_range_test adaptive_threshold_test DESTINATION bin)
+
 
 #############
 ## Testing ##
