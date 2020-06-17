@@ -14,7 +14,7 @@
 #include <log4cxx/patternlayout.h>
 #include <log4cxx/consoleappender.h>
 
-#include "region_detector.h"
+#include "region_detection_core/region_detector.h"
 
 static const std::map<int,int> DILATION_TYPES = {{0, cv::MORPH_RECT}, {1, cv::MORPH_CROSS},{2, cv::MORPH_CROSS}};
 static cv::RNG RANDOM_NUM_GEN(12345);

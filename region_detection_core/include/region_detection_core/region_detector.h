@@ -18,7 +18,7 @@
 #include <Eigen/Geometry>
 #include <Eigen/StdVector>
 
-#include "config_types.h"
+#include "region_detection_core/config_types.h"
 
 namespace region_detection_core
 {
