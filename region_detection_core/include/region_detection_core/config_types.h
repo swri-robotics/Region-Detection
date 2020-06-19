@@ -72,6 +72,20 @@ namespace region_detection_core
       static const int MAX_METHOD = CV_CHAIN_APPROX_TC89_KCOS;
     };
   }
+
+  namespace config_3d
+  {
+    struct DownsampleCfg
+    {
+      bool enable = true;
+      double voxel_leafsize = 0.05;
+    };
+
+    struct OrderingCfg
+    {
+      double kdtree_leafsize = 0.05;
+    };
+  }
 }
 
 

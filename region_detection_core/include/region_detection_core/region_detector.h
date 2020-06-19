@@ -39,6 +39,16 @@ struct RegionDetectionConfig
     bool debug_wait_key = false;
   } opencv_cfg;
 
+  struct PCLCfg
+  {
+    config_3d::DownsampleCfg downsample;
+    config_3d::OrderingCfg ordering;
+
+    double max_merge_dist = 0.01;
+
+    bool debug_mode_enable = false;
+  }  pcl_cfg;
+
 };
 
 class RegionDetector
@@ -47,7 +57,7 @@ public:
   struct DataBundle
   {
     cv::Mat image;
-    pcl::PointCloud<pcl::PointXYZ> cloud;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
     Eigen::Isometry3d transform;
   };
 
@@ -73,8 +83,60 @@ public:
 
 private:
 
+  struct Result
+  {
+    /**
+     * @brief Constructor for the response object
+     * @param success   Set to true if the requested action was completed, use false otherwise.
+     * @param data          Optional data that was generated from the requested transaction.
+     */
+    Result(bool success = true, std::string msg = "")
+      : success(success), msg(msg)
+    {
+    }
+
+    Result(const Result& obj) : success(obj.success), msg(obj.msg) {}
+
+    ~Result() {}
+
+    Result& operator=(const Result& obj)
+    {
+      success = obj.success;
+      msg = obj.msg;
+      return *this;
+    }
+
+    Result& operator=(const bool& b)
+    {
+      this->success = b;
+      return *this;
+    }
+
+    operator bool() const { return success; }
+
+    bool success;
+    std::string msg;
+  };
+
   void updateDebugWindow(const cv::Mat& im) const;
-  std::tuple<bool,std::string> run2DAnalysis(const RegionDetectionConfig::OpenCVCfg& config, cv::Mat input, std::vector<std::vector<cv::Point> > contours) const;
+  Result logAndReturn(bool success, const std::string& err_msg) const;
+
+  Result compute2dContours(const RegionDetectionConfig::OpenCVCfg& config,
+                                             cv::Mat input, std::vector<std::vector<cv::Point> > contours_indices) const;
+
+  Result extractContoursFromCloud(const std::vector<std::vector<cv::Point> > contours_indices,
+                                         pcl::PointCloud<pcl::PointXYZ>::ConstPtr input,
+                                         std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points);
+
+
+  Result computeClosedRegions(const std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points,
+                                                    std::vector<EigenPose3dVector>& region_poses);
+
+  Result mergeCurves(pcl::PointCloud<pcl::PointXYZ> c1, pcl::PointCloud<pcl::PointXYZ> c2,
+                                   pcl::PointCloud<pcl::PointXYZ>& merged);
+
+  Result reorder(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
+                               pcl::PointCloud<pcl::PointXYZ>& ordered_points);
 
   log4cxx::LoggerPtr logger_;
   std::shared_ptr<RegionDetectionConfig> cfg_;
