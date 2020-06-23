@@ -1,8 +1,36 @@
 /*
- * region_detector.cpp
+ * @author Jorge Nicho
+ * @file region_detector.cpp
+ * @date Jun 4, 2020
+ * @copyright Copyright (c) 2020, Southwest Research Institute
+ * Software License Agreement (BSD License)
  *
- *  Created on: Jun 4, 2020
- *      Author: jnicho
+ * Copyright (c) 2020, Southwest Research Institute
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *       * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *       * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *       * Neither the name of the Southwest Research Institute, nor the names
+ *       of its contributors may be used to endorse or promote products derived
+ *       from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include <yaml-cpp/yaml.h>
@@ -18,6 +46,7 @@
 
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/features/normal_3d.h>
 
 #include "region_detection_core/region_detector.h"
 
@@ -33,6 +62,17 @@ log4cxx::LoggerPtr createDefaultLogger(const std::string& logger_name)
   logger->addAppender(console_appender);
   logger->setLevel(Level::getInfo());
   return logger;
+}
+
+Eigen::Matrix3d toRotationMatrix(const Eigen::Vector3d& vx, const Eigen::Vector3d& vy,
+                                                    const Eigen::Vector3d& vz)
+{
+  using namespace Eigen;
+  Matrix3d rot;
+  rot.block(0,0,1,3) = Vector3d(vx.x(), vy.x(), vz.x()).array().transpose();
+  rot.block(1,0,1,3) = Vector3d(vx.y(), vy.y(), vz.y()).array().transpose();
+  rot.block(2,0,1,3) = Vector3d(vx.z(), vy.z(), vz.z()).array().transpose();
+  return rot;
 }
 
 namespace region_detection_core
@@ -132,7 +172,7 @@ void RegionDetector::updateDebugWindow(const cv::Mat& im) const
 }
 
 RegionDetector::Result RegionDetector::compute2dContours(const RegionDetectionConfig::OpenCVCfg& config, cv::Mat input,
-                                                           std::vector<std::vector<cv::Point> > contours_indices) const
+                                                           std::vector<std::vector<cv::Point> >& contours_indices) const
 {
   bool success = false;
   std::string err_msg;
@@ -227,13 +267,65 @@ RegionDetector::Result RegionDetector::compute2dContours(const RegionDetectionCo
   return logAndReturn(success, err_msg);
 }
 
-RegionDetector::RegionResults RegionDetector::compute(const std::vector<DataBundle> &input)
+bool RegionDetector::compute(const std::vector<DataBundle> &input,
+                                                      RegionDetector::RegionResults& regions)
 {
-  return RegionResults();
+  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> all_closed_contours_points;
+  pcl::PointCloud<pcl::PointNormal>::Ptr normals = boost::make_shared<pcl::PointCloud<pcl::PointNormal>>();
+
+  Result res;
+  for(const DataBundle& data : input)
+  {
+    std::vector<std::vector<cv::Point> > contours_indices;
+    res = compute2dContours(cfg_->opencv_cfg, data.image, contours_indices);
+    if(!res)
+    {
+      return false;
+    }
+
+    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> contours_points;
+    res = extractContoursFromCloud(contours_indices,data.cloud,contours_points);
+    if(!res)
+    {
+      return false;
+    }
+
+    std::vector<pcl::PointCloud<pcl::PointNormal>::Ptr> contours_point_normals;
+    res = computeNormals(data.cloud,contours_points,contours_point_normals);
+    if(!res)
+    {
+      return false;
+    }
+
+    // adding found curves
+    all_closed_contours_points.insert(all_closed_contours_points.end(),contours_points.begin(),
+                                      contours_points.end());
+
+    // adding point normals
+    for(auto& cn : contours_point_normals)
+    {
+      (*normals) += *cn;
+    }
+  }
+
+  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> closed_curves_points;
+  res = computeClosedRegions(all_closed_contours_points, closed_curves_points);
+  if(!res)
+  {
+    return false;
+  }
+
+  res = computeRegionPoses(normals,closed_curves_points,regions);
+  if(!res)
+  {
+    return false;
+  }
+
+  return true;
 }
 
 RegionDetector::Result RegionDetector::extractContoursFromCloud(
-    const std::vector<std::vector<cv::Point> > contour_indices, pcl::PointCloud<pcl::PointXYZ>::ConstPtr input,
+    const std::vector<std::vector<cv::Point> >& contour_indices, pcl::PointCloud<pcl::PointXYZ>::ConstPtr input,
     std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points)
 {
   // check for organized point clouds
@@ -267,7 +359,7 @@ RegionDetector::Result RegionDetector::extractContoursFromCloud(
 
 RegionDetector::Result RegionDetector::computeClosedRegions(
     const std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points,
-    std::vector<EigenPose3dVector>& region_poses)
+    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves)
 {
   using namespace pcl;
   // applying downsampling of each point cloud
@@ -299,9 +391,7 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
     }
   }
 
-  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> closed_curves;
   std::vector<int> merged_curves_indices;
-  std::vector<int> adjacent_candidate_indices;
   // find closed curves
   for(std::size_t i = 0; i < output_contours_points.size() - 1; i++)
   {
@@ -314,41 +404,67 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
     // get curve
     PointCloud<PointXYZ>::Ptr curve_points = output_contours_points[i]->makeShared();
 
-    // merge with other curves
-    adjacent_candidate_indices.resize(output_contours_points.size() - (i + 1));
-    std::iota(adjacent_candidate_indices.begin(), adjacent_candidate_indices.end(), (i + 1));
-    for(int idx : adjacent_candidate_indices)
+    // create merge candidate index list
+    std::vector<int> merge_candidate_indices;
+    merge_candidate_indices.resize(output_contours_points.size());
+    std::iota(merge_candidate_indices.begin(), merge_candidate_indices.end(), 0);
+
+    // remove current curve
+    merge_candidate_indices.erase(merge_candidate_indices.begin() + i);
+
+    // search for close curves to merge with
+    bool merged_curves = false;
+    do
     {
-      if(std::find(merged_curves_indices.begin(), merged_curves_indices.end(), idx) != merged_curves_indices.end())
+      merged_curves = false;
+
+      // merge with other unmerged curves
+      for(int idx : merge_candidate_indices)
       {
-        // already merged
-        continue;
+        if(std::find(merged_curves_indices.begin(), merged_curves_indices.end(), idx) != merged_curves_indices.end())
+        {
+          // already merged
+          continue;
+        }
+
+        PointCloud<PointXYZ>::Ptr merged_points = boost::make_shared<PointCloud<PointXYZ>>();
+        PointCloud<PointXYZ>::Ptr next_curve_points = output_contours_points[idx];
+        if(mergeCurves(*curve_points, *next_curve_points,*merged_points))
+        {
+          *curve_points = *merged_points;
+          merged_curves_indices.push_back(i);
+          merged_curves_indices.push_back(idx);
+          merged_curves = true;
+        }
+
+        // removing repeated
+        std::sort(merged_curves_indices.begin(), merged_curves_indices.end());
+        auto it = std::unique(merged_curves_indices.begin(), merged_curves_indices.end());
+        merged_curves_indices.resize( std::distance(merged_curves_indices.begin(),it) );
       }
 
-      PointCloud<PointXYZ>::Ptr merged_points = boost::make_shared<PointCloud<PointXYZ>>();
-      PointCloud<PointXYZ>::Ptr next_curve_points = output_contours_points[idx];
-      if(mergeCurves(*curve_points, *next_curve_points,*merged_points))
-      {
-        *curve_points = *merged_points;
-        merged_curves_indices.push_back(i);
-        merged_curves_indices.push_back(idx);
-      }
-
-      // removing repeated
-      std::sort(merged_curves_indices.begin(), merged_curves_indices.end());
-      auto it = std::unique(merged_curves_indices.begin(), merged_curves_indices.end());
-      merged_curves_indices.resize( std::distance(merged_curves_indices.begin(),it) );
-    }
+    }while(merged_curves);
 
     // check if closed
     Eigen::Vector3d diff = (curve_points->front().getArray3fMap() - curve_points->back().getArray3fMap()).cast<double>();
     if(diff.norm() < cfg_->pcl_cfg.max_merge_dist)
     {
+      // copying first point to end of cloud
+      curve_points->push_back(curve_points->front());
+
+      // saving
       closed_curves.push_back(curve_points);
+      LOG4CXX_INFO(logger_,"Found closed curve with "<< curve_points->size() << " points");
       continue;
     }
   }
 
+  if(closed_curves.empty())
+  {
+    return logAndReturn(false,"Found no closed curves");
+  }
+
+  return true;
 }
 
 RegionDetector::Result RegionDetector::mergeCurves(pcl::PointCloud<pcl::PointXYZ> c1, pcl::PointCloud<pcl::PointXYZ> c2,
@@ -405,7 +521,7 @@ RegionDetector::Result RegionDetector::mergeCurves(pcl::PointCloud<pcl::PointXYZ
 
 RegionDetector::Result RegionDetector::logAndReturn(bool success, const std::string &err_msg) const
 {
-  if(success)
+  if(success && !err_msg.empty())
   {
     LOG4CXX_INFO(logger_, err_msg);
   }
@@ -416,6 +532,136 @@ RegionDetector::Result RegionDetector::logAndReturn(bool success, const std::str
   return Result(success,err_msg);
 }
 
+RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::PointXYZ>::ConstPtr source_cloud,
+                                      std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> &curves_points,
+                                      std::vector<pcl::PointCloud<pcl::PointNormal>::Ptr> &curves_normals)
+{
+
+  // first compute normals
+  pcl::PointCloud<pcl::PointNormal>::Ptr source_cloud_normals (new pcl::PointCloud<pcl::PointNormal>);
+  const config_3d::NormalEstimationCfg& cfg = cfg_->pcl_cfg.normal_est;
+  pcl::NormalEstimation<pcl::PointXYZ, pcl::PointNormal> ne;
+  ne.setInputCloud(source_cloud);
+  ne.setViewPoint(cfg.viewpoint_xyz[0], cfg.viewpoint_xyz[1], cfg.viewpoint_xyz[2]);
+  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
+  ne.setSearchMethod (tree);
+  ne.setRadiusSearch (cfg.radius_search);
+  ne.compute (*source_cloud_normals);
+
+  // create kdtree to search cloud with normals
+  pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
+  kdtree.setEpsilon(cfg.kdtree_epsilon);
+  kdtree.setInputCloud(source_cloud);
+
+
+  const int MAX_NUM_POINTS = 1;
+  std::vector<int> nearest_indices(MAX_NUM_POINTS);
+  std::vector<float> nearest_distances(MAX_NUM_POINTS);
+  for(auto& curve : curves_points)
+  {
+    // search point and copy its normal
+    pcl::PointCloud<pcl::PointNormal>::Ptr curve_normals = boost::make_shared<pcl::PointCloud<pcl::PointNormal>>();
+    curve_normals->reserve(curve->size());
+    for(auto& search_p : *curve)
+    {
+      int nearest_found = kdtree.radiusSearch(search_p,cfg.radius_search,nearest_indices,nearest_distances
+                                              , MAX_NUM_POINTS);
+      if(nearest_found <=0 )
+      {
+        return Result(false,"Found no points near curve, can not get normal vector");
+      }
+      curve_normals->push_back(source_cloud_normals->at(nearest_indices.front()));
+    }
+
+    curves_normals.push_back(curve_normals);
+  }
+  return true;
+}
+
+RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::PointNormal>::ConstPtr source_normal_cloud,
+                                                      std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> &curves_points,
+                                                      RegionResults &regions)
+{
+  using namespace Eigen;
+  const config_3d::NormalEstimationCfg& cfg = cfg_->pcl_cfg.normal_est;
+
+/*  // first compute normals
+  pcl::PointCloud<pcl::Normal>::Ptr source_cloud_normals (new pcl::PointCloud<pcl::Normal>);
+
+  pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
+  ne.setInputCloud(source_normal_cloud);
+  ne.setViewPoint(cfg.viewpoint_xyz[0], cfg.viewpoint_xyz[1], cfg.viewpoint_xyz[2]);
+  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
+  ne.setSearchMethod (tree);
+  ne.setRadiusSearch (cfg.radius_search);
+  ne.compute (*source_cloud_normals);*/
+
+  // create kdtree to search cloud with normals
+  pcl::PointCloud<pcl::PointXYZ>::Ptr source_points = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+  pcl::copyPointCloud(*source_normal_cloud, *source_points);
+  pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
+  kdtree.setEpsilon(cfg.kdtree_epsilon);
+  kdtree.setInputCloud(source_points);
+
+  const unsigned int MAX_NUM_POINTS = 1;
+  std::vector<int> nearest_indices(MAX_NUM_POINTS);
+  std::vector<float> nearest_distances(MAX_NUM_POINTS);
+  for(auto& curve : curves_points)
+  {
+    // search point and copy its normal
+    pcl::PointCloud<pcl::Normal>::Ptr curve_normals = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
+    curve_normals->reserve(curve->size());
+    for(auto& search_p : *curve)
+    {
+      int nearest_found = kdtree.radiusSearch(search_p,cfg.radius_search,nearest_indices,nearest_distances
+                                              , MAX_NUM_POINTS);
+      if(nearest_found <=0 )
+      {
+        return Result(false,"Found no points near curve, can not get normal vector");
+      }
+      pcl::Normal p;
+      pcl::copyPoint(source_normal_cloud->at(nearest_indices.front()), p);
+      curve_normals->push_back(p);
+    }
+
+    EigenPose3dVector curve_poses;
+    pcl::PointNormal p1, p2;
+    Isometry3d pose;
+    Vector3d x_dir, z_dir, y_dir;
+    double dir = 1.0;
+    for(std::size_t i = 0; i < curve->size(); i++)
+    {
+      std::size_t idx_current = i;
+      std::size_t idx_next = i+1;
+      dir = 1.0;
+
+      if(idx_next >= curve->size())
+      {
+        std::size_t idx_current = i;
+        std::size_t idx_next = i-1;
+        dir = -1.0;
+      }
+
+      pcl::copyPoint(curve->at(idx_current),p1);
+      pcl::copyPoint(curve_normals->at(idx_current),p1);
+      pcl::copyPoint(curve->at(idx_next),p2);
+      pcl::copyPoint(curve_normals->at(idx_next),p2);
+
+      x_dir = dir * (p2.getVector3fMap() - p1.getVector3fMap()).normalized().cast<double>();
+      z_dir = Vector3d(p1.normal_x, p1.normal_y, p1.normal_z).normalized();
+      y_dir = z_dir.cross(x_dir).normalized();
+      z_dir = x_dir.cross(y_dir).normalized();
+
+      pose = Translation3d(p1.getVector3fMap().cast<double>());
+      pose.matrix().block<3,3>(0,0) = toRotationMatrix(x_dir, y_dir, z_dir);
+      curve_poses.push_back(pose);
+    }
+    regions.region_poses.push_back(curve_poses);
+  }
+
+  return true;
+}
+
 RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
                              pcl::PointCloud<pcl::PointXYZ>& ordered_points)
 {
@@ -424,7 +670,7 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
 
   // build reordering kd tree
   pcl::KdTreeFLANN<pcl::PointXYZ> reorder_kdtree;
-  reorder_kdtree.setEpsilon(cfg_->pcl_cfg.ordering.kdtree_leafsize);
+  reorder_kdtree.setEpsilon(cfg_->pcl_cfg.ordering.kdtree_epsilon);
 
   auto& cloud = *points;
   std::vector<int> visited_indices, active_indices;

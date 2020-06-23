@@ -78,12 +78,19 @@ namespace region_detection_core
     struct DownsampleCfg
     {
       bool enable = true;
-      double voxel_leafsize = 0.05;
+      double voxel_leafsize = 0.005;
     };
 
     struct OrderingCfg
     {
-      double kdtree_leafsize = 0.05;
+      double kdtree_epsilon = 1e-5;
+    };
+
+    struct NormalEstimationCfg
+    {
+      double radius_search = 0.02;
+      double kdtree_epsilon = 1e-5;
+      std::array<double,3> viewpoint_xyz = {0.0, 0.0, 100.0};
     };
   }
 }

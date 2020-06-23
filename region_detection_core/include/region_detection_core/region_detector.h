@@ -1,8 +1,36 @@
 /*
- * region_detector.h
+ * @author Jorge Nicho
+ * @file region_detector.h
+ * @date Jun 4, 2020
+ * @copyright Copyright (c) 2020, Southwest Research Institute
+ * Software License Agreement (BSD License)
  *
- *  Created on: Jun 4, 2020
- *      Author: jnicho
+ * Copyright (c) 2020, Southwest Research Institute
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *       * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *       * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *       * Neither the name of the Southwest Research Institute, nor the names
+ *       of its contributors may be used to endorse or promote products derived
+ *       from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef INCLUDE_REGION_DETECTOR_H_
@@ -43,6 +71,7 @@ struct RegionDetectionConfig
   {
     config_3d::DownsampleCfg downsample;
     config_3d::OrderingCfg ordering;
+    config_3d::NormalEstimationCfg normal_est;
 
     double max_merge_dist = 0.01;
 
@@ -76,7 +105,7 @@ public:
   bool configure(const std::string& yaml_str);
   const RegionDetectionConfig& getConfig();
 
-  RegionResults compute(const std::vector<DataBundle>& input);
+  bool compute(const std::vector<DataBundle>& input,RegionDetector::RegionResults& regions);
 
   static log4cxx::LoggerPtr createDefaultInfoLogger(const std::string& logger_name);
   static log4cxx::LoggerPtr createDefaultDebugLogger(const std::string& logger_name);
@@ -121,22 +150,34 @@ private:
   void updateDebugWindow(const cv::Mat& im) const;
   Result logAndReturn(bool success, const std::string& err_msg) const;
 
+  // 2d methods
   Result compute2dContours(const RegionDetectionConfig::OpenCVCfg& config,
-                                             cv::Mat input, std::vector<std::vector<cv::Point> > contours_indices) const;
+                                             cv::Mat input, std::vector<std::vector<cv::Point> >& contours_indices) const;
 
-  Result extractContoursFromCloud(const std::vector<std::vector<cv::Point> > contours_indices,
+  // 3d methods
+
+  Result extractContoursFromCloud(const std::vector<std::vector<cv::Point> >& contours_indices,
                                          pcl::PointCloud<pcl::PointXYZ>::ConstPtr input,
                                          std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points);
 
-
   Result computeClosedRegions(const std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points,
-                                                    std::vector<EigenPose3dVector>& region_poses);
+                              std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves);
+
+  Result computeRegionPoses(pcl::PointCloud<pcl::PointNormal>::ConstPtr source_normals_cloud,
+                        std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves,
+                        RegionResults& regions);
+
+  Result computeNormals(pcl::PointCloud<pcl::PointXYZ>::ConstPtr source_cloud,
+                                        std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> &curves_points,
+                                        std::vector<pcl::PointCloud<pcl::PointNormal>::Ptr> &curves_normals);
 
   Result mergeCurves(pcl::PointCloud<pcl::PointXYZ> c1, pcl::PointCloud<pcl::PointXYZ> c2,
                                    pcl::PointCloud<pcl::PointXYZ>& merged);
 
   Result reorder(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
                                pcl::PointCloud<pcl::PointXYZ>& ordered_points);
+
+
 
   log4cxx::LoggerPtr logger_;
   std::shared_ptr<RegionDetectionConfig> cfg_;
