@@ -44,7 +44,7 @@ namespace region_detection_core
     {
       bool enable = true;
       int elem = 0;
-      int size = 1;
+      int kernel_size = 1;
 
       static const int MAX_ELEM = 2;
       static const int MAX_KERNEL_SIZE = 21;

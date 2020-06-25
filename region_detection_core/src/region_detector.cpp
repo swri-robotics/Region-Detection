@@ -47,6 +47,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/features/normal_3d.h>
+#include <pcl/conversions.h>
 
 #include "region_detection_core/region_detector.h"
 
@@ -194,12 +195,12 @@ RegionDetector::Result RegionDetector::compute2dContours(const RegionDetectionCo
   if(config.dilation.enable)
   {
     // check values
-    if(config.dilation.size <= 0)
+    if(config.dilation.kernel_size <= 0)
     {
       success = false;
       err_msg = "invalid dilation size";
-      LOG4CXX_INFO(logger_,err_msg);
-      return logAndReturn(success, err_msg);
+      LOG4CXX_ERROR(logger_,err_msg)
+      return Result(success,err_msg);
     }
 
     // select dilation type
@@ -207,13 +208,13 @@ RegionDetector::Result RegionDetector::compute2dContours(const RegionDetectionCo
     {
       success = false;
       err_msg = "invalid dilation element";
-      LOG4CXX_INFO(logger_,err_msg);
-      return logAndReturn(success, err_msg);
+      LOG4CXX_ERROR(logger_,err_msg)
+      return Result(success,err_msg);
     }
     int dilation_type = DILATION_TYPES.at(config.dilation.elem);
     cv::Mat element = cv::getStructuringElement( dilation_type,
-                         cv::Size( 2*config.dilation.size + 1, 2*config.dilation.size+1 ),
-                         cv::Point( config.dilation.size, config.dilation.size ) );
+                         cv::Size( 2*config.dilation.kernel_size + 1, 2*config.dilation.kernel_size+1 ),
+                         cv::Point( config.dilation.kernel_size, config.dilation.kernel_size ) );
     cv::dilate( output.clone(), output, element );
     updateDebugWindow(output);
   }
@@ -264,7 +265,8 @@ RegionDetector::Result RegionDetector::compute2dContours(const RegionDetectionCo
   }
 
   output = drawing.clone();
-  return logAndReturn(success, err_msg);
+  LOG4CXX_DEBUG(logger_,"Completed 2D analysis");
+  return Result(true);
 }
 
 bool RegionDetector::compute(const std::vector<DataBundle> &input,
@@ -277,21 +279,29 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
   for(const DataBundle& data : input)
   {
     std::vector<std::vector<cv::Point> > contours_indices;
+    LOG4CXX_DEBUG(logger_,"Computing 2d contours");
     res = compute2dContours(cfg_->opencv_cfg, data.image, contours_indices);
     if(!res)
     {
       return false;
     }
 
+    // convert blob to xyz cloud type
+    pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+    pcl::fromPCLPointCloud2(data.cloud_blob,*input_cloud);
+
+    // extract contours 3d points from 2d pixel locations
     std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> contours_points;
-    res = extractContoursFromCloud(contours_indices,data.cloud,contours_points);
+    LOG4CXX_DEBUG(logger_,"Extracting contours from 3d data");
+    res = extractContoursFromCloud(contours_indices,input_cloud ,contours_points);
     if(!res)
     {
       return false;
     }
 
+    LOG4CXX_DEBUG(logger_,"Computing normals for contour points");
     std::vector<pcl::PointCloud<pcl::PointNormal>::Ptr> contours_point_normals;
-    res = computeNormals(data.cloud,contours_points,contours_point_normals);
+    res = computeNormals(input_cloud,contours_points,contours_point_normals);
     if(!res)
     {
       return false;
@@ -308,19 +318,25 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
     }
   }
 
-  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> closed_curves_points;
-  res = computeClosedRegions(all_closed_contours_points, closed_curves_points);
+  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> closed_curves_points, open_curves_points, all_curves_points;
+  LOG4CXX_DEBUG(logger_,"Computing closed regions");
+  res = computeClosedRegions(all_closed_contours_points, closed_curves_points, open_curves_points);
   if(!res)
   {
     return false;
   }
 
-  res = computeRegionPoses(normals,closed_curves_points,regions);
+  // adding to all curves vector
+  all_curves_points.insert(all_curves_points.end(), closed_curves_points.begin(), closed_curves_points.end());
+  all_curves_points.insert(all_curves_points.end(), open_curves_points.begin(), open_curves_points.end());
+
+  LOG4CXX_DEBUG(logger_,"Computing closed regions normals");
+  res = computeRegionPoses(normals,all_curves_points,regions);
   if(!res)
   {
     return false;
   }
-
+  LOG4CXX_INFO(logger_,"Region Detection complete, found "<< regions.region_poses.size() << " closed regions");
   return true;
 }
 
@@ -329,9 +345,11 @@ RegionDetector::Result RegionDetector::extractContoursFromCloud(
     std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points)
 {
   // check for organized point clouds
-  if(input->isOrganized())
+  if(!input->isOrganized())
   {
-    return logAndReturn(false,"Point Cloud not organized");
+    std::string err_msg = "Point Cloud not organized";
+    LOG4CXX_ERROR(logger_,err_msg)
+    return Result(false,err_msg);
   }
 
   pcl::PointCloud<pcl::PointXYZ> temp_contour_points;
@@ -339,7 +357,9 @@ RegionDetector::Result RegionDetector::extractContoursFromCloud(
   {
     if(indices.empty())
     {
-      return logAndReturn(false,"Empty indices vector was passed");
+      std::string err_msg = "Empty indices vector was passed";
+      LOG4CXX_ERROR(logger_,err_msg)
+      return Result(false,err_msg);
     }
 
     temp_contour_points.clear();
@@ -347,7 +367,10 @@ RegionDetector::Result RegionDetector::extractContoursFromCloud(
     {
       if(idx.x >= input->width || idx.y >= input->height)
       {
-        return logAndReturn(false,"2D indices exceed point cloud size");
+        std::string err_msg = "2D indices exceed point cloud size";
+        LOG4CXX_ERROR(logger_,err_msg)
+        return Result(false,err_msg);
+
       }
       temp_contour_points.push_back((*input)(idx.x,idx.y));
     }
@@ -359,7 +382,8 @@ RegionDetector::Result RegionDetector::extractContoursFromCloud(
 
 RegionDetector::Result RegionDetector::computeClosedRegions(
     const std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points,
-    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves)
+    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves,
+    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& open_curves)
 {
   using namespace pcl;
   // applying downsampling of each point cloud
@@ -385,9 +409,14 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
   // order points
   for(std::size_t i = 0; i < output_contours_points.size(); i++)
   {
-    if(!reorder(output_contours_points[i]->makeShared(),*output_contours_points[i]))
+    auto temp_cloud = output_contours_points[i]->makeShared();
+    output_contours_points[i]->clear();
+    LOG4CXX_ERROR(logger_,"Sequencing curve " << i);
+    if(!reorder(temp_cloud,*output_contours_points[i]))
     {
-      return logAndReturn(false,"Failed to order point cloud");
+      std::string err_msg = "Failed to order point cloud";
+      LOG4CXX_ERROR(logger_,err_msg)
+      return Result(false,err_msg);
     }
   }
 
@@ -398,8 +427,11 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
     if(std::find(merged_curves_indices.begin(), merged_curves_indices.end(), i) != merged_curves_indices.end())
     {
       // already merged
+      LOG4CXX_DEBUG(logger_,"Curve "<< i <<" has already been merged");
       continue;
     }
+
+    LOG4CXX_DEBUG(logger_,"Attempting to merge Curve "<< i );
 
     // get curve
     PointCloud<PointXYZ>::Ptr curve_points = output_contours_points[i]->makeShared();
@@ -424,6 +456,7 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
         if(std::find(merged_curves_indices.begin(), merged_curves_indices.end(), idx) != merged_curves_indices.end())
         {
           // already merged
+          LOG4CXX_DEBUG(logger_,"Curve "<< idx <<" has alredy been merged");
           continue;
         }
 
@@ -435,6 +468,7 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
           merged_curves_indices.push_back(i);
           merged_curves_indices.push_back(idx);
           merged_curves = true;
+          LOG4CXX_DEBUG(logger_,"Merged Curve "<< idx <<" with "<< next_curve_points->size() << " points to curve "<< i);
         }
 
         // removing repeated
@@ -449,21 +483,35 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
     Eigen::Vector3d diff = (curve_points->front().getArray3fMap() - curve_points->back().getArray3fMap()).cast<double>();
     if(diff.norm() < cfg_->pcl_cfg.max_merge_dist)
     {
-      // copying first point to end of cloud
+      // copying first point to end of cloud to close the curve
       curve_points->push_back(curve_points->front());
 
       // saving
       closed_curves.push_back(curve_points);
-      LOG4CXX_INFO(logger_,"Found closed curve with "<< curve_points->size() << " points");
+      merged_curves_indices.push_back(i);
+      LOG4CXX_DEBUG(logger_,"Found closed curve with "<< curve_points->size() << " points");
       continue;
     }
   }
 
-  if(closed_curves.empty())
+  // copying open curves that were not merged
+  for(std::size_t i =0; i < output_contours_points.size(); i++)
   {
-    return logAndReturn(false,"Found no closed curves");
+    if(std::find(merged_curves_indices.begin(),merged_curves_indices.end(), i) != merged_curves_indices.end())
+    {
+      continue;
+    }
+    open_curves.push_back(output_contours_points[i]);
+    LOG4CXX_DEBUG(logger_,"Copied curve "<< i << "into open curves vector");
   }
 
+  if(closed_curves.empty())
+  {
+    std::string err_msg = "Found no closed curves";
+    LOG4CXX_ERROR(logger_,err_msg)
+    return Result(false,err_msg);
+  }
+  LOG4CXX_INFO(logger_,"Found " << closed_curves.size() <<  " closed curves");
   return true;
 }
 
@@ -519,7 +567,7 @@ RegionDetector::Result RegionDetector::mergeCurves(pcl::PointCloud<pcl::PointXYZ
   return reorder(c1.makeShared(),merged);
 }
 
-RegionDetector::Result RegionDetector::logAndReturn(bool success, const std::string &err_msg) const
+/*RegionDetector::Result RegionDetector::logAndReturn(bool success, const std::string &err_msg) const
 {
   if(success && !err_msg.empty())
   {
@@ -530,7 +578,7 @@ RegionDetector::Result RegionDetector::logAndReturn(bool success, const std::str
     LOG4CXX_ERROR(logger_, err_msg);
   }
   return Result(success,err_msg);
-}
+}*/
 
 RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::PointXYZ>::ConstPtr source_cloud,
                                       std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> &curves_points,
@@ -568,11 +616,15 @@ RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::Point
                                               , MAX_NUM_POINTS);
       if(nearest_found <=0 )
       {
-        return Result(false,"Found no points near curve, can not get normal vector");
+        std::string err_msg = "Found no points near curve, can not get normal vector";
+        LOG4CXX_ERROR(logger_,err_msg)
+        return Result(false,err_msg);
       }
-      curve_normals->push_back(source_cloud_normals->at(nearest_indices.front()));
+      pcl::PointNormal pn;
+      pcl::copyPoint(source_cloud_normals->at(nearest_indices.front()), pn);
+      pcl::copyPoint(search_p, pn);
+      curve_normals->push_back(pn);
     }
-
     curves_normals.push_back(curve_normals);
   }
   return true;
@@ -606,8 +658,11 @@ RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::P
   const unsigned int MAX_NUM_POINTS = 1;
   std::vector<int> nearest_indices(MAX_NUM_POINTS);
   std::vector<float> nearest_distances(MAX_NUM_POINTS);
+  int curve_idx = -1;
   for(auto& curve : curves_points)
   {
+    curve_idx++;
+
     // search point and copy its normal
     pcl::PointCloud<pcl::Normal>::Ptr curve_normals = boost::make_shared<pcl::PointCloud<pcl::Normal>>();
     curve_normals->reserve(curve->size());
@@ -617,13 +672,18 @@ RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::P
                                               , MAX_NUM_POINTS);
       if(nearest_found <=0 )
       {
-        return Result(false,"Found no points near curve, can not get normal vector");
+        std::string err_msg = boost::str(
+            boost::format("Found no points near curve within a radius of %f, can not get normal vector")%
+            cfg.radius_search);
+        LOG4CXX_ERROR(logger_,err_msg);
+        return Result(false,err_msg);
       }
       pcl::Normal p;
       pcl::copyPoint(source_normal_cloud->at(nearest_indices.front()), p);
       curve_normals->push_back(p);
     }
 
+    LOG4CXX_DEBUG(logger_,"Computing pose orientation vectors for curve "<< curve_idx);
     EigenPose3dVector curve_poses;
     pcl::PointNormal p1, p2;
     Isometry3d pose;
@@ -637,8 +697,8 @@ RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::P
 
       if(idx_next >= curve->size())
       {
-        std::size_t idx_current = i;
-        std::size_t idx_next = i-1;
+        idx_current = i;
+        idx_next = i-1;
         dir = -1.0;
       }
 
@@ -671,6 +731,7 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
   // build reordering kd tree
   pcl::KdTreeFLANN<pcl::PointXYZ> reorder_kdtree;
   reorder_kdtree.setEpsilon(cfg_->pcl_cfg.ordering.kdtree_epsilon);
+  reorder_kdtree.setSortedResults(true);
 
   auto& cloud = *points;
   std::vector<int> visited_indices, active_indices;
@@ -686,6 +747,7 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
   PointXYZ start_point = search_point;
   PointXYZ closest_point;
   int iter_count = 0;
+  ordered_points.push_back(search_point);
 
   // now reorder based on proximity
   while(iter_count <= max_iters)
@@ -703,6 +765,7 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
     // set tree inputs;
     IndicesConstPtr cloud_indices = boost::make_shared<const std::vector<int>>(active_indices);
     reorder_kdtree.setInputCloud(points,cloud_indices);
+    reorder_kdtree.setSortedResults(true);
 
     // find next point
     std::vector<int> k_indices(k_points);
@@ -710,7 +773,9 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
     int points_found = reorder_kdtree.nearestKSearch(search_point,k_points, k_indices, k_sqr_distances);
     if(points_found < k_points)
     {
-      return logAndReturn(false,"Nearest K Search failed to find a point during reordering stage");
+      std::string err_msg = "Nearest K Search failed to find a point during reordering stage";
+      LOG4CXX_ERROR(logger_,err_msg)
+      return Result(false,err_msg);
     }
 
     // insert new point if it has not been visited
@@ -728,7 +793,8 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
     {
       // reversing will allow adding point from the other end
       std::reverse(visited_indices.begin(),visited_indices.end());
-      start_point = cloud[visited_indices[0]];
+      std::reverse(ordered_points.begin(),ordered_points.end());
+
     }
 
     // set next search point variables
@@ -737,16 +803,21 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
 
     // add to visited
     visited_indices.push_back(k_indices[0]);
+    start_point = cloud[visited_indices[0]];
+    ordered_points.push_back(closest_point);
   }
 
-  if(visited_indices.size() < max_iters)
+  if(visited_indices.size() != max_iters)
   {
     std::string err_msg = boost::str(
         boost::format("Failed to include all points in the downsampled group, only got %lu out of %lu") %
         visited_indices.size() % max_iters);
-    return logAndReturn(false, err_msg);
+    LOG4CXX_ERROR(logger_,err_msg)
+    return Result(false,err_msg);
   }
-  pcl::copyPointCloud(*points,visited_indices,ordered_points);
+  LOG4CXX_DEBUG(logger_,"active indices vec size " << active_indices.size());
+  LOG4CXX_DEBUG(logger_,"visited indices vec size " << visited_indices.size());
+  //pcl::copyPointCloud(*points,visited_indices,ordered_points);
   return true;
 }
 

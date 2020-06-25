@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(region_detection_core)
+project(region_detection_core VERSION 0.0.0 LANGUAGES CXX)
 
 # Default to C++14
 if(NOT CMAKE_CXX_STANDARD)
@@ -88,7 +88,7 @@ target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC
   ${OPENCV_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
   ${Eigen_INCLUDE_DIRS}
-  ${PCL_LIBRARIES}
+  ${PCL_INCLUDE_DIRS}
   ${Log4cxx_INCLUDE_DIRS}
   ${yaml-cpp_INCLUDE_DIRS}
 ) 
@@ -107,16 +107,43 @@ endif()
 
 #############
 ## Install ##
-#############
-
+#############    
 install(DIRECTORY include/
   DESTINATION include
 )
 
+install(TARGETS threshold_grayscale_test threshold_in_range_test adaptive_threshold_test 
+	DESTINATION bin)
+
+list (APPEND PACKAGE_LIBRARIES ${PROJECT_NAME})
+install(TARGETS ${PACKAGE_LIBRARIES}
+  EXPORT ${PROJECT_NAME}-targets
+  DESTINATION lib)
+  
+install(EXPORT ${PROJECT_NAME}-targets
+  NAMESPACE ${PROJECT_NAME}:: DESTINATION lib/cmake/${PROJECT_NAME})
+
 install(FILES package.xml DESTINATION share/${PROJECT_NAME})
+  
+# Create cmake config files
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    ${CMAKE_CURRENT_LIST_DIR}/cmake/${PROJECT_NAME}-config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake
+    INSTALL_DESTINATION lib/cmake/${PROJECT_NAME}
+    NO_CHECK_REQUIRED_COMPONENTS_MACRO)
 
-install(TARGETS threshold_grayscale_test threshold_in_range_test adaptive_threshold_test DESTINATION bin)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config-version.cmake
+    VERSION ${PROJECT_VERSION} COMPATIBILITY ExactVersion)
 
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config-version.cmake"
+    DESTINATION lib/cmake/${PROJECT_NAME})
+
+export(EXPORT ${PROJECT_NAME}-targets NAMESPACE ${PROJECT_NAME}:: FILE
+    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-targets.cmake)
 
 #############
 ## Testing ##

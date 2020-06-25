@@ -86,7 +86,7 @@ public:
   struct DataBundle
   {
     cv::Mat image;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
+    pcl::PCLPointCloud2 cloud_blob;
     Eigen::Isometry3d transform;
   };
 
@@ -148,7 +148,7 @@ private:
   };
 
   void updateDebugWindow(const cv::Mat& im) const;
-  Result logAndReturn(bool success, const std::string& err_msg) const;
+  //Result logAndReturn(bool success, const std::string& err_msg) const;
 
   // 2d methods
   Result compute2dContours(const RegionDetectionConfig::OpenCVCfg& config,
@@ -161,7 +161,8 @@ private:
                                          std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points);
 
   Result computeClosedRegions(const std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points,
-                              std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves);
+                              std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves,
+                              std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& open_curves);
 
   Result computeRegionPoses(pcl::PointCloud<pcl::PointNormal>::ConstPtr source_normals_cloud,
                         std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves,
