@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="data_dir" default="$(env HOME)/region_detection_data/ameoba"/>
+  <node name="detect_regions_demo" pkg="region_detection_roscpp_demo" type="detect_regions_demo" output="screen">
+  	<rosparam command="load" ns="config2d" file="$(find region_detection_roscpp_demo)/config/config2d.yaml"/>
+  	<rosparam command="load" ns="config3d" file="$(find region_detection_roscpp_demo)/config/config3d.yaml"/>
+  	<param name="data_dir" value="$(arg data_dir)"/>
+  	<rosparam command="load" ns="data" file="$(find region_detection_roscpp_demo)/config/data_list.yaml"/>
+  </node>
+  <node name="rviz" type="rviz" pkg="rviz" args="-d $(find region_detection_roscpp_demo)/config/demo.rviz"/>
+</launch>

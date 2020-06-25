@@ -1,0 +1,11 @@
+debug_mode_enable: false
+max_merge_dist: 0.02
+downsample:
+  enable: true
+  voxel_leafsize: 0.005
+ordering:
+  kdtree_epsilon: 0.00001
+normal_est:
+  radius_search: 0.01
+  kdtree_epsilon: 0.00001
+  viewpoint_xyz: [0.0, 0.0, 100.0]

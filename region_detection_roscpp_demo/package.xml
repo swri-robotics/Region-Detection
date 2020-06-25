@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>region_detection_roscpp_demo</name>
+  <version>0.0.0</version>
+  <description>The region_detection_roscpp_demo package</description>
+  <maintainer email="jrgnichodevel@gmail.com">Jorge Nicho</maintainer>
+  <license>BSD</license>
+  <author email="jrgnichodevel@gmail.com">Jorge Nicho</author>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>region_detection_core</depend>
+  <depend>roscpp</depend>
+  <depend>visualization_msgs</depend>
+  <depend>eigen_conversions</depend>
+  <depend>pcl_ros</depend>
+
+  <export>
+  </export>
+</package>

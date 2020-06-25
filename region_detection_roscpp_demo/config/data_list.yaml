@@ -1,0 +1,3 @@
+- image_file: color.png
+  cloud_file: point_cloud.pcd
+  transform: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
