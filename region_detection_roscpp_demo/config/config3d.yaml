@@ -1,16 +1,16 @@
 debug_mode_enable: false
-max_merge_dist: 0.02
+max_merge_dist: 0.01
 stat_removal:
   enable: false
   kmeans: 500
   stddev: 2.0
 downsample:
-  enable: true
+  enable: false
   voxel_leafsize: 0.005
 sequencing:
-  kdtree_epsilon: 0.00001
-  search_radius: 0.02
+  kdtree_epsilon: 0.001
+  search_radius: 0.01
 normal_est:
   search_radius: 0.01
-  kdtree_epsilon: 0.00001
+  kdtree_epsilon: 0.001
   viewpoint_xyz: [0.0, 0.0, 100.0]

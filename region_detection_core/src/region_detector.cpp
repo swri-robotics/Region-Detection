@@ -863,15 +863,11 @@ RegionDetector::Result RegionDetector::sequencePoints(pcl::PointCloud<pcl::Point
     int points_found = sequencing_kdtree.nearestKSearch(search_point,k_points, k_indices, k_sqr_distances);
     if(points_found < k_points)
     {
-      //std::string err_msg = "Nearest K Search failed to find a point during reordering stage";
       std::string err_msg = boost::str(boost::format(
-          "Radius Search did not find any points within a radius of %f") % cfg.search_radius);
-
+          "NearestKSearch Search did not find any points close to [%f, %f, %f]") %
+                                       search_point.x % search_point.y % search_point.z);
       LOG4CXX_WARN(logger_,err_msg);
-      //search_point_idx = sequenced_indices.empty() ? unsequenced_indices.back() : sequenced_indices.front();
-      //search_point = cloud[search_point_idx];
       break;
-      //return Result(false,err_msg);
     }
     // saving search point
     if(sequenced_indices.empty())
@@ -974,7 +970,7 @@ RegionDetector::Result RegionDetector::sequencePoints(pcl::PointCloud<pcl::Point
       const PointXYZ& p_current = sequenced_points[i];
       const PointXYZ& p_next = sequenced_points[i+1];
       Eigen::Vector3d diff = (p_next.getArray3fMap() - p_current.getArray3fMap()).cast<double>();
-      if((diff.norm() < cfg_->pcl_cfg.max_merge_dist))
+      if((diff.norm() < cfg.search_radius))
       {
         continue;
       }
