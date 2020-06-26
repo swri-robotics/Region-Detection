@@ -75,20 +75,27 @@ namespace region_detection_core
 
   namespace config_3d
   {
+    struct StatisticalRemovalCfg
+    {
+      bool enable = true;
+      int kmeans = 50;
+      double stddev = 1.0;
+    };
     struct DownsampleCfg
     {
       bool enable = true;
       double voxel_leafsize = 0.005;
     };
 
-    struct OrderingCfg
+    struct SequencingCfg
     {
       double kdtree_epsilon = 1e-5;
+      double search_radius = 0.02;
     };
 
     struct NormalEstimationCfg
     {
-      double radius_search = 0.02;
+      double search_radius = 0.02;
       double kdtree_epsilon = 1e-5;
       std::array<double,3> viewpoint_xyz = {0.0, 0.0, 100.0};
     };

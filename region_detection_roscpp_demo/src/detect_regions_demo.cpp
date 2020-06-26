@@ -139,16 +139,21 @@ visualization_msgs::MarkerArray convertToDottedLineMarker(const std::vector<Eige
                                                     const std::string& frame_id,
                                                     const std::string& ns,
                                                     const std::size_t& start_id = 0,
+                                                    const std::array<double,4>& rgba_line = {1.0, 1.0, 0.2, 1.0},
+                                                    const std::array<double,4>& rgba_point = {0.1, .8, 0.2, 1.0},
                                                     const std::array<float, 6>& offset = {0,0,0,0,0,0},
                                                     const float& line_width = 0.001,
-                                                    const float& point_size = 0.002)
+                                                    const float& point_size = 0.0015)
 {
   visualization_msgs::MarkerArray markers_msgs;
   visualization_msgs::Marker line_marker, points_marker;
 
   // configure line marker
   line_marker.action = line_marker.ADD;
-  std::tie(line_marker.color.r, line_marker.color.g, line_marker.color.b, line_marker.color.a) = std::make_tuple(1.0, 1.0, 0.2, 1.0);
+  std::tie(line_marker.color.r, line_marker.color.g, line_marker.color.b, line_marker.color.a) = std::make_tuple(rgba_line[0],
+                                                                                                                 rgba_line[1],
+                                                                                                                 rgba_line[2],
+                                                                                                                 rgba_line[3]);
   line_marker.header.frame_id = frame_id;
   line_marker.type = line_marker.LINE_STRIP;
   line_marker.id = start_id;
@@ -161,7 +166,10 @@ visualization_msgs::MarkerArray convertToDottedLineMarker(const std::vector<Eige
   points_marker = line_marker;
   points_marker.type = points_marker.POINTS;
   points_marker.ns = ns;
-  std::tie(points_marker.color.r, points_marker.color.g, points_marker.color.b, points_marker.color.a) = std::make_tuple(0.1, .8, 0.2, 1.0);
+  std::tie(points_marker.color.r, points_marker.color.g, points_marker.color.b, points_marker.color.a) = std::make_tuple(rgba_point[0],
+                                                                                                                         rgba_point[1],
+                                                                                                                         rgba_point[2],
+                                                                                                                         rgba_point[3]);
   std::tie(points_marker.scale.x, points_marker.scale.y, points_marker.scale.z) = std::make_tuple(point_size,point_size,point_size);
 
   int id_counter = start_id;
@@ -272,6 +280,17 @@ RegionDetectionConfig::PCLCfg loadPCLParams()
    throw std::runtime_error(err_msg);
   }
 
+  param_ns = "stat_removal";
+  ph = ros::NodeHandle("~/config3d/" + param_ns);
+  success =  ph.getParam("enable",cfg.stat_removal.enable) &&
+      ph.getParam("kmeans",cfg.stat_removal.kmeans) &&
+     ph.getParam("stddev",cfg.stat_removal.stddev );
+  if(!success)
+  {
+   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
+   throw std::runtime_error(err_msg);
+  }
+
   param_ns = "downsample";
   ph = ros::NodeHandle("~/config3d/" + param_ns);
   success =  ph.getParam("enable",cfg.downsample.enable) &&
@@ -282,9 +301,10 @@ RegionDetectionConfig::PCLCfg loadPCLParams()
    throw std::runtime_error(err_msg);
   }
 
-  param_ns = "ordering";
+  param_ns = "sequencing";
   ph = ros::NodeHandle("~/config3d/" + param_ns);
-  success =  ph.getParam("kdtree_epsilon",cfg.ordering.kdtree_epsilon);
+  success =  ph.getParam("kdtree_epsilon",cfg.sequencing.kdtree_epsilon) &&
+      ph.getParam("search_radius",cfg.sequencing.search_radius);
   if(!success)
   {
    std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
@@ -295,7 +315,7 @@ RegionDetectionConfig::PCLCfg loadPCLParams()
   std::vector<double> viewpoint_vals(6);
   ph = ros::NodeHandle("~/config3d/" + param_ns);
   success =  ph.getParam("kdtree_epsilon",cfg.normal_est.kdtree_epsilon) &&
-      ph.getParam("radius_search",cfg.normal_est.radius_search) &&
+      ph.getParam("search_radius",cfg.normal_est.search_radius) &&
       ph.getParam("viewpoint_xyz",viewpoint_vals);
   std::copy(viewpoint_vals.begin(), viewpoint_vals.end(), cfg.normal_est.viewpoint_xyz.begin());
   if(!success)
@@ -423,7 +443,7 @@ int main(int argc, char** argv)
   if(!rd.compute(data_vec,results))
   {
     ROS_ERROR("Failed to compute regions");
-    return -1;
+    //return -1;
   }
 
   // creating publishers
@@ -433,11 +453,24 @@ int main(int argc, char** argv)
   // create markers to publish
   visualization_msgs::MarkerArray results_markers;
   int id = 0;
-  for(auto& poses : results.region_poses)
+  for(auto& poses : results.closed_regions_poses)
   {
 /*    visualization_msgs::MarkerArray m = convertToAxisMarkers({poses},WORLD_FRAME_ID,"region" + std::to_string(id++),0, 0.001,
                                                              0.01,{0,0,0,0,0,0});*/
-    visualization_msgs::MarkerArray m = convertToDottedLineMarker({poses},WORLD_FRAME_ID,"region" + std::to_string(id++));
+    visualization_msgs::MarkerArray m = convertToDottedLineMarker({poses},WORLD_FRAME_ID,"closed_regions" + std::to_string(id++));
+
+    results_markers.markers.insert(results_markers.markers.end(), m.markers.begin(), m.markers.end());
+  }
+
+  for(auto& poses : results.open_regions_poses)
+  {
+/*    visualization_msgs::MarkerArray m = convertToAxisMarkers({poses},WORLD_FRAME_ID,"region" + std::to_string(id++),0, 0.001,
+                                                             0.01,{0,0,0,0,0,0});*/
+    visualization_msgs::MarkerArray m = convertToDottedLineMarker({poses},WORLD_FRAME_ID,
+                                                                  "open_regions" + std::to_string(id++),
+                                                                  0,
+                                                                  {1.0, 0.2, 0.2, 1.0},
+                                                                  {0.2, 0.2, 0.2, 1.0});
 
     results_markers.markers.insert(results_markers.markers.end(), m.markers.begin(), m.markers.end());
   }

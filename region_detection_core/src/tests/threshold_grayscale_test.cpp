@@ -230,11 +230,11 @@ int main( int argc, char** argv )
           updateImage );
 
   //! [Dilation trackbars]
-  createTrackbar( "Element:\n 0: Rect \n 1: Cross \n 2: Ellipse", window_name,
+  createTrackbar( "Dilation Element:\n 0: Rect \n 1: Cross \n 2: Ellipse", window_name,
           &dilation_elem,
           max_elem,
           updateImage );
-  createTrackbar( "Kernel size:\n 2n +1", window_name,
+  createTrackbar( "Dilation Kernel size:\n 2n +1", window_name,
           &dilation_size, max_kernel_size,
           updateImage );
 

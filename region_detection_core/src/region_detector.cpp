@@ -48,11 +48,13 @@
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/conversions.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 
 #include "region_detection_core/region_detector.h"
 
-static const std::map<int,int> DILATION_TYPES = {{0, cv::MORPH_RECT}, {1, cv::MORPH_CROSS},{2, cv::MORPH_CROSS}};
+static const std::map<int,int> DILATION_TYPES = {{0, cv::MORPH_RECT}, {1, cv::MORPH_CROSS},{2, cv::MORPH_ELLIPSE}};
 static cv::RNG RANDOM_NUM_GEN(12345);
+static const double MIN_POINT_DIST = 1e-8;
 
 log4cxx::LoggerPtr createDefaultLogger(const std::string& logger_name)
 {
@@ -74,6 +76,18 @@ Eigen::Matrix3d toRotationMatrix(const Eigen::Vector3d& vx, const Eigen::Vector3
   rot.block(1,0,1,3) = Vector3d(vx.y(), vy.y(), vz.y()).array().transpose();
   rot.block(2,0,1,3) = Vector3d(vx.z(), vy.z(), vz.z()).array().transpose();
   return rot;
+}
+
+template <typename T>
+std::vector<T> linspace(T a, T b, size_t N)
+{
+    T h = (b - a) / static_cast<T>(N-1);
+    std::vector<T> xs(N);
+    typename std::vector<T>::iterator x;
+    T val;
+    for (x = xs.begin(), val = a; x != xs.end(); ++x, val += h)
+        *x = val;
+    return xs;
 }
 
 namespace region_detection_core
@@ -161,10 +175,13 @@ void RegionDetector::updateDebugWindow(const cv::Mat& im) const
   if(cv::getWindowProperty(wname, cv::WND_PROP_VISIBLE) <= 0)
   {
     // create window then
-    namedWindow(opencv_cfg.debug_window_name, WINDOW_AUTOSIZE);
+    namedWindow(wname, WINDOW_AUTOSIZE);
+/*    std::string msg = boost::str(boost::format("Created opencv window \"%s\"") % wname );
+    LOG4CXX_DEBUG(logger_,msg);*/
   }
 
-  imshow( wname, im );
+  imshow( wname, im.clone() );
+  cv::waitKey(100);
 
   if(opencv_cfg.debug_wait_key)
   {
@@ -172,22 +189,25 @@ void RegionDetector::updateDebugWindow(const cv::Mat& im) const
   }
 }
 
-RegionDetector::Result RegionDetector::compute2dContours(const RegionDetectionConfig::OpenCVCfg& config, cv::Mat input,
+RegionDetector::Result RegionDetector::compute2dContours( cv::Mat input,
                                                            std::vector<std::vector<cv::Point> >& contours_indices) const
 {
   bool success = false;
   std::string err_msg;
   cv::Mat output = input;
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
 
   //  ======================== convert to grayscale ========================
-  cvtColor( output.clone(), output, cv::COLOR_RGB2GRAY );
+  cv::cvtColor( output.clone(), output, cv::COLOR_RGB2GRAY );
+  LOG4CXX_ERROR(logger_,"2D analysis: Grayscale Conversion");
   updateDebugWindow(output);
 
   // ======================== inverting ========================
   if(config.invert_image)
   {
-    cv::Mat inverted = cv::Scalar_<uint8_t>(255) - input;
+    cv::Mat inverted = cv::Scalar_<uint8_t>(255) - output;
     output = inverted.clone();
+    LOG4CXX_ERROR(logger_,"2D analysis: Inversion");
     updateDebugWindow(output);
   }
 
@@ -216,6 +236,16 @@ RegionDetector::Result RegionDetector::compute2dContours(const RegionDetectionCo
                          cv::Size( 2*config.dilation.kernel_size + 1, 2*config.dilation.kernel_size+1 ),
                          cv::Point( config.dilation.kernel_size, config.dilation.kernel_size ) );
     cv::dilate( output.clone(), output, element );
+    LOG4CXX_ERROR(logger_,"2D analysis: Dilation");
+    updateDebugWindow(output);
+  }
+
+  //threshold( src_gray, dst, threshold_value, max_binary_value, threshold_type );
+  if(config.threshold.enable)
+  {
+    cv::threshold( output.clone(), output, config.threshold.value, config.threshold.MAX_BINARY_VALUE,
+                   config.threshold.type );
+    LOG4CXX_ERROR(logger_,"2D analysis: threshold with value of "<< config.threshold.value);
     updateDebugWindow(output);
   }
 
@@ -227,10 +257,12 @@ RegionDetector::Result RegionDetector::compute2dContours(const RegionDetectionCo
     aperture_size = aperture_size < 3  ? 3 : aperture_size;
     cv::Canny( output.clone(), detected_edges, config.canny.lower_threshold, config.canny.upper_threshold, aperture_size );
     output = detected_edges.clone();
+    LOG4CXX_ERROR(logger_,"2D analysis: Canny");
     updateDebugWindow(output);
   }
 
   //  ======================== Contour Detection ========================
+
   std::vector<cv::Vec4i> hierarchy;
   cv::findContours(output.clone(), contours_indices, hierarchy, config.contour.mode, config.contour.method);
 
@@ -246,22 +278,8 @@ RegionDetector::Result RegionDetector::compute2dContours(const RegionDetectionCo
                                     i % contours_indices[i].size() % area % arc_length %
                                     contours_indices[i].front() % contours_indices[i].back() % hierarchy[i]);
    LOG4CXX_INFO(logger_,contour_summary);
-   updateDebugWindow(output);
-  }
-
-  // removing repeated points
-  for(std::size_t i = 0; i < contours_indices.size() ;i++)
-  {
-    auto& cindices = contours_indices[i];
-    std::sort(cindices.begin(), cindices.end(),[](cv::Point& p1, cv::Point& p2){
-      return (p1.x + p1.y) > (p2.x + p2.y);
-    });
-    std::remove_reference< decltype(cindices) >::type::iterator last_iter = std::unique(
-        cindices.begin(), cindices.end(),[](cv::Point& p1, cv::Point& p2){
-      return (p1.x == p2.x) && (p1.y == p2.y);
-    });
-    cindices.erase(last_iter, cindices.end());
-    contours_indices[i] = cindices;
+   LOG4CXX_ERROR(logger_,"2D analysis: Contour "<< i);
+   updateDebugWindow(drawing);
   }
 
   output = drawing.clone();
@@ -276,19 +294,53 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
   pcl::PointCloud<pcl::PointNormal>::Ptr normals = boost::make_shared<pcl::PointCloud<pcl::PointNormal>>();
 
   Result res;
+  static const int MIN_PIXEL_DISTANCE = 1;
   for(const DataBundle& data : input)
   {
     std::vector<std::vector<cv::Point> > contours_indices;
     LOG4CXX_DEBUG(logger_,"Computing 2d contours");
-    res = compute2dContours(cfg_->opencv_cfg, data.image, contours_indices);
+    res = compute2dContours(data.image, contours_indices);
     if(!res)
     {
       return false;
     }
 
+    // interpolating to fill gaps
+    for(std::size_t i = 0; i < contours_indices.size(); i++)
+    {
+      std::vector<cv::Point> interpolated_indices;
+      const std::vector<cv::Point>& indices = contours_indices[i];
+      interpolated_indices.push_back(indices.front());
+      for(std::size_t j = 1; j < indices.size(); j++)
+      {
+        const cv::Point& p1 = indices[j-1];
+        const cv::Point& p2 = indices[j];
+
+        int x_coord_dist = std::abs(p2.x - p1.x);
+        int y_coord_dist = std::abs(p2.y - p1.y);
+        int max_coord_dist = x_coord_dist > y_coord_dist ? x_coord_dist : y_coord_dist;
+        if(max_coord_dist <= MIN_PIXEL_DISTANCE)
+        {
+          interpolated_indices.push_back(p2);
+          continue;
+        }
+        int num_elements = max_coord_dist+1;
+        std::vector<int> x_coord = linspace<int>(p1.x, p2.x,num_elements);
+        std::vector<int> y_coord = linspace<int>(p1.y, p2.y,num_elements);
+        cv::Point p;
+        for(std::size_t k = 0 ; k < num_elements ;k++)
+        {
+          std::tie(p.x, p.y) = std::make_tuple(x_coord[k], y_coord[k]);
+          interpolated_indices.push_back(p);
+        }
+      }
+      contours_indices[i] = interpolated_indices;
+    }
+
     // convert blob to xyz cloud type
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     pcl::fromPCLPointCloud2(data.cloud_blob,*input_cloud);
+
 
     // extract contours 3d points from 2d pixel locations
     std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> contours_points;
@@ -297,6 +349,25 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
     if(!res)
     {
       return false;
+    }
+
+    for(auto& contour : contours_points)
+    {
+      // removing nans
+      LOG4CXX_DEBUG(logger_,"Cloud NAN removal");
+      std::vector<int> nan_indices = {};
+      pcl::removeNaNFromPointCloud(*contour, *contour,nan_indices);
+
+      // statistical outlier removal
+      if(cfg_->pcl_cfg.stat_removal.enable)
+      {
+        LOG4CXX_DEBUG(logger_,"Cloud Statistical Outlier Removal");
+        pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+        sor.setInputCloud (contour->makeShared());
+        sor.setMeanK (cfg_->pcl_cfg.stat_removal.kmeans);
+        sor.setStddevMulThresh (cfg_->pcl_cfg.stat_removal.stddev);
+        sor.filter (*contour);
+      }
     }
 
     LOG4CXX_DEBUG(logger_,"Computing normals for contour points");
@@ -318,25 +389,22 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
     }
   }
 
-  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> closed_curves_points, open_curves_points, all_curves_points;
+  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> closed_curves_points, open_curves_points;
   LOG4CXX_DEBUG(logger_,"Computing closed regions");
   res = computeClosedRegions(all_closed_contours_points, closed_curves_points, open_curves_points);
+  std::string msg = boost::str(boost::format("Found %i closed regions and %s open regions") % closed_curves_points.size() %
+                               open_curves_points.size() );
+  LOG4CXX_DEBUG(logger_, msg)
+
+  LOG4CXX_DEBUG(logger_,"Computing curves normals");
+  computeRegionPoses(normals,open_curves_points,regions.open_regions_poses);
+  computeRegionPoses(normals,closed_curves_points,regions.closed_regions_poses);
   if(!res)
   {
     return false;
   }
 
-  // adding to all curves vector
-  all_curves_points.insert(all_curves_points.end(), closed_curves_points.begin(), closed_curves_points.end());
-  all_curves_points.insert(all_curves_points.end(), open_curves_points.begin(), open_curves_points.end());
-
-  LOG4CXX_DEBUG(logger_,"Computing closed regions normals");
-  res = computeRegionPoses(normals,all_curves_points,regions);
-  if(!res)
-  {
-    return false;
-  }
-  LOG4CXX_INFO(logger_,"Region Detection complete, found "<< regions.region_poses.size() << " closed regions");
+  LOG4CXX_INFO(logger_,"Region Detection complete, found "<< regions.closed_regions_poses.size() << " closed regions");
   return true;
 }
 
@@ -372,7 +440,7 @@ RegionDetector::Result RegionDetector::extractContoursFromCloud(
         return Result(false,err_msg);
 
       }
-      temp_contour_points.push_back((*input)(idx.x,idx.y));
+      temp_contour_points.push_back(input->at(idx.x,idx.y));
     }
     contours_points.push_back(boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>(temp_contour_points));
   }
@@ -402,27 +470,37 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
       PointCloud<PointXYZ>::Ptr downsampled_cloud = boost::make_shared<PointCloud<PointXYZ>>();
       voxelizer.setInputCloud(output_contours_points[i]);
       voxelizer.filter(*downsampled_cloud);
+      LOG4CXX_ERROR(logger_,"Downsampled curve from " << output_contours_points[i]->size() <<
+                    " to "<< downsampled_cloud->size());
       output_contours_points[i] = downsampled_cloud;
     }
   }
 
-  // order points
+  // sequence points
+  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> sequenced_contours_points;
   for(std::size_t i = 0; i < output_contours_points.size(); i++)
   {
     auto temp_cloud = output_contours_points[i]->makeShared();
     output_contours_points[i]->clear();
     LOG4CXX_ERROR(logger_,"Sequencing curve " << i);
-    if(!reorder(temp_cloud,*output_contours_points[i]))
+    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> temp_points_vec;
+    if(!sequencePoints(temp_cloud,temp_points_vec))
     {
-      std::string err_msg = "Failed to order point cloud";
+      std::string err_msg = "Failed to sequence point cloud";
       LOG4CXX_ERROR(logger_,err_msg)
       return Result(false,err_msg);
     }
+    sequenced_contours_points.insert(sequenced_contours_points.end(),
+                                     temp_points_vec.begin(), temp_points_vec.end());
+
   }
+  output_contours_points.clear();
+  output_contours_points.insert(output_contours_points.end(),sequenced_contours_points.begin(),
+                                sequenced_contours_points.end());
 
   std::vector<int> merged_curves_indices;
   // find closed curves
-  for(std::size_t i = 0; i < output_contours_points.size() - 1; i++)
+  for(std::size_t i = 0; i < output_contours_points.size(); i++)
   {
     if(std::find(merged_curves_indices.begin(), merged_curves_indices.end(), i) != merged_curves_indices.end())
     {
@@ -490,11 +568,15 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
       closed_curves.push_back(curve_points);
       merged_curves_indices.push_back(i);
       LOG4CXX_DEBUG(logger_,"Found closed curve with "<< curve_points->size() << " points");
-      continue;
+    }
+    else
+    {
+      open_curves.push_back(curve_points);
+      LOG4CXX_DEBUG(logger_,"Found open curve with "<< curve_points->size() << " points");
     }
   }
 
-  // copying open curves that were not merged
+/*  // copying open curves that were not merged
   for(std::size_t i =0; i < output_contours_points.size(); i++)
   {
     if(std::find(merged_curves_indices.begin(),merged_curves_indices.end(), i) != merged_curves_indices.end())
@@ -502,8 +584,8 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
       continue;
     }
     open_curves.push_back(output_contours_points[i]);
-    LOG4CXX_DEBUG(logger_,"Copied curve "<< i << "into open curves vector");
-  }
+    LOG4CXX_DEBUG(logger_,"Copied curve "<< i << " into open curves vector");
+  }*/
 
   if(closed_curves.empty())
   {
@@ -564,7 +646,22 @@ RegionDetector::Result RegionDetector::mergeCurves(pcl::PointCloud<pcl::PointXYZ
   }
 
   // reorder just in case
-  return reorder(c1.makeShared(),merged);
+  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> points_vec;
+  if(!sequencePoints(c1.makeShared(),points_vec))
+  {
+    std::string err_msg = "Failed to sequence merged curve";
+    LOG4CXX_ERROR(logger_,err_msg);
+    return Result(false,err_msg);
+  }
+
+  if(points_vec.size() > 1)
+  {
+    std::string err_msg = "Merged curve got split during sequencing";
+    LOG4CXX_ERROR(logger_,err_msg);
+    return Result(false,err_msg);
+  }
+  pcl::copyPointCloud(*points_vec.front(), merged);
+  return true;
 }
 
 /*RegionDetector::Result RegionDetector::logAndReturn(bool success, const std::string &err_msg) const
@@ -593,7 +690,7 @@ RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::Point
   ne.setViewPoint(cfg.viewpoint_xyz[0], cfg.viewpoint_xyz[1], cfg.viewpoint_xyz[2]);
   pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
   ne.setSearchMethod (tree);
-  ne.setRadiusSearch (cfg.radius_search);
+  ne.setRadiusSearch (cfg.search_radius);
   ne.compute (*source_cloud_normals);
 
   // create kdtree to search cloud with normals
@@ -612,7 +709,7 @@ RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::Point
     curve_normals->reserve(curve->size());
     for(auto& search_p : *curve)
     {
-      int nearest_found = kdtree.radiusSearch(search_p,cfg.radius_search,nearest_indices,nearest_distances
+      int nearest_found = kdtree.radiusSearch(search_p,cfg.search_radius,nearest_indices,nearest_distances
                                               , MAX_NUM_POINTS);
       if(nearest_found <=0 )
       {
@@ -632,21 +729,10 @@ RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::Point
 
 RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::PointNormal>::ConstPtr source_normal_cloud,
                                                       std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> &curves_points,
-                                                      RegionResults &regions)
+                                                      std::vector<EigenPose3dVector>& curves_poses)
 {
   using namespace Eigen;
   const config_3d::NormalEstimationCfg& cfg = cfg_->pcl_cfg.normal_est;
-
-/*  // first compute normals
-  pcl::PointCloud<pcl::Normal>::Ptr source_cloud_normals (new pcl::PointCloud<pcl::Normal>);
-
-  pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
-  ne.setInputCloud(source_normal_cloud);
-  ne.setViewPoint(cfg.viewpoint_xyz[0], cfg.viewpoint_xyz[1], cfg.viewpoint_xyz[2]);
-  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
-  ne.setSearchMethod (tree);
-  ne.setRadiusSearch (cfg.radius_search);
-  ne.compute (*source_cloud_normals);*/
 
   // create kdtree to search cloud with normals
   pcl::PointCloud<pcl::PointXYZ>::Ptr source_points = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
@@ -668,13 +754,13 @@ RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::P
     curve_normals->reserve(curve->size());
     for(auto& search_p : *curve)
     {
-      int nearest_found = kdtree.radiusSearch(search_p,cfg.radius_search,nearest_indices,nearest_distances
+      int nearest_found = kdtree.radiusSearch(search_p,cfg.search_radius,nearest_indices,nearest_distances
                                               , MAX_NUM_POINTS);
       if(nearest_found <=0 )
       {
         std::string err_msg = boost::str(
             boost::format("Found no points near curve within a radius of %f, can not get normal vector")%
-            cfg.radius_search);
+            cfg.search_radius);
         LOG4CXX_ERROR(logger_,err_msg);
         return Result(false,err_msg);
       }
@@ -683,7 +769,7 @@ RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::P
       curve_normals->push_back(p);
     }
 
-    LOG4CXX_DEBUG(logger_,"Computing pose orientation vectors for curve "<< curve_idx);
+    LOG4CXX_DEBUG(logger_,"Computing pose orientation vectors for curve "<< curve_idx << " with "<< curve->size() <<" points");
     EigenPose3dVector curve_poses;
     pcl::PointNormal p1, p2;
     Isometry3d pose;
@@ -716,38 +802,41 @@ RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::P
       pose.matrix().block<3,3>(0,0) = toRotationMatrix(x_dir, y_dir, z_dir);
       curve_poses.push_back(pose);
     }
-    regions.region_poses.push_back(curve_poses);
+    curves_poses.push_back(curve_poses);
   }
 
   return true;
 }
 
-RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
-                             pcl::PointCloud<pcl::PointXYZ>& ordered_points)
+RegionDetector::Result RegionDetector::sequencePoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
+                             std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& sequenced_points_vec)
 {
   using namespace pcl;
-  const int k_points = 1;
+
+  const config_3d::SequencingCfg& cfg = cfg_->pcl_cfg.sequencing;
 
   // build reordering kd tree
-  pcl::KdTreeFLANN<pcl::PointXYZ> reorder_kdtree;
-  reorder_kdtree.setEpsilon(cfg_->pcl_cfg.ordering.kdtree_epsilon);
-  reorder_kdtree.setSortedResults(true);
+  pcl::KdTreeFLANN<pcl::PointXYZ> sequencing_kdtree;
+  sequencing_kdtree.setEpsilon(cfg.kdtree_epsilon);
+  sequencing_kdtree.setSortedResults(true);
 
   auto& cloud = *points;
-  std::vector<int> visited_indices, active_indices;
-  visited_indices.reserve(cloud.size());
-  active_indices.resize(cloud.size());
-  std::iota(active_indices.begin(), active_indices.end(),0);
+  std::vector<int> sequenced_indices, unsequenced_indices;
+  sequenced_indices.reserve(cloud.size());
+  unsequenced_indices.resize(cloud.size());
+  std::iota(unsequenced_indices.begin(), unsequenced_indices.end(),0);
 
+  // cloud of all sequenced points
+  pcl::PointCloud<pcl::PointXYZ> sequenced_points;
+  sequenced_points.reserve(cloud.size());
+
+  // search variables
   int search_point_idx = 0;
-  visited_indices.push_back(search_point_idx); // insert first point
-
   const int max_iters = cloud.size();
   PointXYZ search_point = cloud[search_point_idx];
   PointXYZ start_point = search_point;
   PointXYZ closest_point;
   int iter_count = 0;
-  ordered_points.push_back(search_point);
 
   // now reorder based on proximity
   while(iter_count <= max_iters)
@@ -755,31 +844,44 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
     iter_count++;
 
     // remove from active
-    active_indices.erase(std::remove(active_indices.begin(), active_indices.end(),search_point_idx));
+    unsequenced_indices.erase(std::remove(unsequenced_indices.begin(), unsequenced_indices.end(),search_point_idx));
 
-    if(active_indices.empty())
+    if(unsequenced_indices.empty())
     {
       break;
     }
 
     // set tree inputs;
-    IndicesConstPtr cloud_indices = boost::make_shared<const std::vector<int>>(active_indices);
-    reorder_kdtree.setInputCloud(points,cloud_indices);
-    reorder_kdtree.setSortedResults(true);
+    IndicesConstPtr cloud_indices = boost::make_shared<const std::vector<int>>(unsequenced_indices);
+    sequencing_kdtree.setInputCloud(points,cloud_indices);
+    sequencing_kdtree.setSortedResults(true);
 
     // find next point
+    const int k_points = 1;
     std::vector<int> k_indices(k_points);
     std::vector<float> k_sqr_distances(k_points);
-    int points_found = reorder_kdtree.nearestKSearch(search_point,k_points, k_indices, k_sqr_distances);
+    int points_found = sequencing_kdtree.nearestKSearch(search_point,k_points, k_indices, k_sqr_distances);
     if(points_found < k_points)
     {
-      std::string err_msg = "Nearest K Search failed to find a point during reordering stage";
-      LOG4CXX_ERROR(logger_,err_msg)
-      return Result(false,err_msg);
+      //std::string err_msg = "Nearest K Search failed to find a point during reordering stage";
+      std::string err_msg = boost::str(boost::format(
+          "Radius Search did not find any points within a radius of %f") % cfg.search_radius);
+
+      LOG4CXX_WARN(logger_,err_msg);
+      //search_point_idx = sequenced_indices.empty() ? unsequenced_indices.back() : sequenced_indices.front();
+      //search_point = cloud[search_point_idx];
+      break;
+      //return Result(false,err_msg);
+    }
+    // saving search point
+    if(sequenced_indices.empty())
+    {
+      sequenced_indices.push_back(search_point_idx); // insert first point
+      sequenced_points.push_back(search_point);
     }
 
     // insert new point if it has not been visited
-    if(std::find(visited_indices.begin(), visited_indices.end(),k_indices[0]) != visited_indices.end())
+    if(std::find(sequenced_indices.begin(), sequenced_indices.end(),k_indices[0]) != sequenced_indices.end())
     {
       // there should be no more points to add
       LOG4CXX_WARN(logger_,"Found repeated point during reordering stage, should not happen but proceeding");
@@ -788,13 +890,13 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
 
     // check if found point is further away than the start point
     closest_point = cloud[k_indices[0]];
+    start_point = cloud[sequenced_indices[0]];
     Eigen::Vector3d diff = (start_point.getArray3fMap() - closest_point.getArray3fMap()).cast<double>();
     if(diff.norm() < std::sqrt(k_sqr_distances[0]))
     {
       // reversing will allow adding point from the other end
-      std::reverse(visited_indices.begin(),visited_indices.end());
-      std::reverse(ordered_points.begin(),ordered_points.end());
-
+      std::reverse(sequenced_indices.begin(),sequenced_indices.end());
+      std::reverse(sequenced_points.begin(),sequenced_points.end());
     }
 
     // set next search point variables
@@ -802,22 +904,120 @@ RegionDetector::Result RegionDetector::reorder(pcl::PointCloud<pcl::PointXYZ>::C
     search_point = closest_point;
 
     // add to visited
-    visited_indices.push_back(k_indices[0]);
-    start_point = cloud[visited_indices[0]];
-    ordered_points.push_back(closest_point);
+    sequenced_indices.push_back(k_indices[0]);
+    sequenced_points.push_back(closest_point);
   }
 
-  if(visited_indices.size() != max_iters)
+  // inserting unsequenced points
+  if(sequenced_indices.size() != max_iters)
   {
     std::string err_msg = boost::str(
-        boost::format("Failed to include all points in the downsampled group, only got %lu out of %lu") %
-        visited_indices.size() % max_iters);
-    LOG4CXX_ERROR(logger_,err_msg)
-    return Result(false,err_msg);
+        boost::format("Not all points were sequenced in the first attempt, only got %lu out of %lu") %
+        sequenced_indices.size() % max_iters);
+    LOG4CXX_DEBUG(logger_,err_msg)
+    //return Result(false,err_msg);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr sequenced_points_clone = sequenced_points.makeShared();
+    for(std::size_t idx : unsequenced_indices)
+    {
+      const int k_points = 2;
+      std::vector<int> k_indices(k_points);
+      std::vector<float> k_sqr_distances(k_points);
+      search_point = cloud[idx];
+      sequencing_kdtree.setInputCloud(sequenced_points_clone);
+      sequencing_kdtree.setSortedResults(true);
+      //int points_found = sequencing_kdtree.nearestKSearch(search_point,k_points, k_indices, k_sqr_distances);
+      int points_found = sequencing_kdtree.radiusSearch(search_point,cfg.search_radius,
+                                                        k_indices, k_sqr_distances, k_points);
+      if(points_found == 1)
+      {
+        std::size_t insert_loc = k_indices[0] >= sequenced_points_clone->size() ? sequenced_points_clone->size()
+            : (k_indices[0] +1) ;
+        sequenced_points_clone->insert(sequenced_points_clone->begin() + insert_loc ,search_point);
+      }
+      else if (points_found > 1)
+      {
+        Eigen::Vector3d v1 = (search_point.getVector3fMap() -
+            sequenced_points_clone->at(k_indices[0]).getVector3fMap()).cast<double>();
+        Eigen::Vector3d v2 = (sequenced_points_clone->at(k_indices[1]).getVector3fMap() -
+            sequenced_points_clone->at(k_indices[0]).getVector3fMap()).cast<double>();
+
+        double angle = std::acos((v1.dot(v2))/(v1.norm() * v2.norm()));
+        std::size_t insert_loc = angle > M_PI_2 ? k_indices[0] + 1 : k_indices[0] ;
+        insert_loc = insert_loc >= sequenced_points_clone->size() ? sequenced_points_clone->size() :
+            insert_loc ;
+        sequenced_points_clone->insert(sequenced_points_clone->begin() + insert_loc ,search_point);
+      }
+      else if (points_found <= 0)
+      {
+        std::string err_msg = boost::str(
+            boost::format("Point with index %i has no neighbors and will be excluded") % idx);
+        LOG4CXX_WARN(logger_,err_msg)
+        continue;
+      }
+
+      sequenced_points.clear();
+      pcl::copyPointCloud(*sequenced_points_clone, sequenced_points);
+    }
   }
-  LOG4CXX_DEBUG(logger_,"active indices vec size " << active_indices.size());
-  LOG4CXX_DEBUG(logger_,"visited indices vec size " << visited_indices.size());
-  //pcl::copyPointCloud(*points,visited_indices,ordered_points);
+
+  LOG4CXX_DEBUG(logger_,"Sequenced " << sequenced_points.size() << " points from "<< cloud.size());
+
+  // splitting
+  std::size_t start_idx = 0;
+  std::size_t end_idx;
+  for(std::size_t i = 0; i < sequenced_points.size(); i++)
+  {
+    end_idx = i;
+    if( i < sequenced_points.size() - 1)
+    {
+      const PointXYZ& p_current = sequenced_points[i];
+      const PointXYZ& p_next = sequenced_points[i+1];
+      Eigen::Vector3d diff = (p_next.getArray3fMap() - p_current.getArray3fMap()).cast<double>();
+      if((diff.norm() < cfg_->pcl_cfg.max_merge_dist))
+      {
+        continue;
+      }
+    }
+
+    if(end_idx == start_idx )
+    {
+      // single point, discard
+      start_idx = i+1;
+      continue;
+    }
+
+    // save segment
+    PointCloud<PointXYZ>::Ptr segment_points = boost::make_shared<PointCloud<PointXYZ>>();
+    for(std::size_t p_idx = start_idx ; p_idx <= end_idx; p_idx++)
+    {
+      auto& p_current = sequenced_points[p_idx];
+      if(p_idx > start_idx)
+      {
+        auto& p_prev = segment_points->back();
+        Eigen::Vector3d diff = (p_current.getArray3fMap() - p_prev.getArray3fMap()).cast<double>();
+        if(diff.norm() < MIN_POINT_DIST)
+        {
+          // too close do not add
+          continue;
+        }
+      }
+      segment_points->push_back(p_current);
+    }
+
+    LOG4CXX_DEBUG(logger_,"Creating sequence [" << start_idx << ",  "<< end_idx<<"] with "
+                  << segment_points->size()<<" points");
+    if(segment_points->size() <=1)
+    {
+      LOG4CXX_DEBUG(logger_,"Ignoring segment of 1 point");
+      continue;
+    }
+    sequenced_points_vec.push_back(segment_points);
+    start_idx = i+1;
+  }
+
+  LOG4CXX_DEBUG(logger_,"Computed " << sequenced_points_vec.size() <<" sequences");
+
   return true;
 }
 

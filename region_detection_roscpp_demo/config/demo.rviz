@@ -28,7 +28,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: PointCloud2
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -89,7 +89,8 @@ Visualization Manager:
       Marker Topic: /regions_results
       Name: MarkerArray
       Namespaces:
-        {}
+        region0: true
+        region1: true
       Queue Size: 100
       Value: true
   Enabled: true
@@ -120,25 +121,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 1.1559044122695923
+      Distance: 1.2917104959487915
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.29073143005371094
-        Y: 0.27825120091438293
-        Z: 0.2722039520740509
+        X: -0.3195548355579376
+        Y: 0.2903873920440674
+        Z: 0.3066379427909851
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8503979444503784
+      Pitch: 0.8603981137275696
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 5.463571548461914
+      Yaw: 5.428569316864014
     Saved: ~
 Window Geometry:
   Displays:
@@ -157,4 +158,4 @@ Window Geometry:
     collapsed: true
   Width: 1389
   X: 298
-  Y: 114
+  Y: 84

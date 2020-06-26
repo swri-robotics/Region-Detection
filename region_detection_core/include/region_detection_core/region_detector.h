@@ -69,8 +69,9 @@ struct RegionDetectionConfig
 
   struct PCLCfg
   {
+    config_3d::StatisticalRemovalCfg stat_removal;
     config_3d::DownsampleCfg downsample;
-    config_3d::OrderingCfg ordering;
+    config_3d::SequencingCfg sequencing;
     config_3d::NormalEstimationCfg normal_est;
 
     double max_merge_dist = 0.01;
@@ -93,7 +94,8 @@ public:
   typedef std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > EigenPose3dVector;
   struct RegionResults
   {
-    std::vector<EigenPose3dVector> region_poses;
+    std::vector<EigenPose3dVector> closed_regions_poses;
+    std::vector<EigenPose3dVector> open_regions_poses;
   };
 
   RegionDetector(const RegionDetectionConfig& config, log4cxx::LoggerPtr logger = nullptr);
@@ -151,8 +153,7 @@ private:
   //Result logAndReturn(bool success, const std::string& err_msg) const;
 
   // 2d methods
-  Result compute2dContours(const RegionDetectionConfig::OpenCVCfg& config,
-                                             cv::Mat input, std::vector<std::vector<cv::Point> >& contours_indices) const;
+  Result compute2dContours(cv::Mat input, std::vector<std::vector<cv::Point> >& contours_indices) const;
 
   // 3d methods
 
@@ -166,7 +167,7 @@ private:
 
   Result computeRegionPoses(pcl::PointCloud<pcl::PointNormal>::ConstPtr source_normals_cloud,
                         std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves,
-                        RegionResults& regions);
+                        std::vector<EigenPose3dVector> & regions);
 
   Result computeNormals(pcl::PointCloud<pcl::PointXYZ>::ConstPtr source_cloud,
                                         std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> &curves_points,
@@ -175,8 +176,8 @@ private:
   Result mergeCurves(pcl::PointCloud<pcl::PointXYZ> c1, pcl::PointCloud<pcl::PointXYZ> c2,
                                    pcl::PointCloud<pcl::PointXYZ>& merged);
 
-  Result reorder(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
-                               pcl::PointCloud<pcl::PointXYZ>& ordered_points);
+  Result sequencePoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
+                        std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& sequenced_points_vec);
 
 
 

@@ -1,5 +1,5 @@
 invert_image: true
-debug_mode_enable: false
+debug_mode_enable: true
 debug_window_name: "DEBUG_REGION_DETECTION"
 debug_wait_key: false
 threshold:
@@ -8,8 +8,8 @@ threshold:
   value: 150
 canny:
   enable: true
-  lower_threshold: 48
-  upper_threshold: 148
+  lower_threshold: 45
+  upper_threshold: 180
   aperture_size: 1
 dilation:
   enable: true
