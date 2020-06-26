@@ -16,5 +16,5 @@ dilation:
   elem: 0 # 0: Rect, 1: Cross, 2: Ellipse
   kernel_size: 1 # 2n + 1
 contour:
-  method: 2
+  method: 1
   mode: 0
