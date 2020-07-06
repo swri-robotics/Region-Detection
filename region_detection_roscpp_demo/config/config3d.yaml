@@ -1,9 +1,9 @@
 debug_mode_enable: false
 max_merge_dist: 0.01
 stat_removal:
-  enable: false
+  enable: true
   kmeans: 500
-  stddev: 2.0
+  stddev: 5.0
 downsample:
   enable: false
   voxel_leafsize: 0.005

@@ -179,6 +179,12 @@ private:
   Result sequencePoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
                         std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& sequenced_points_vec);
 
+  pcl::PointCloud<pcl::PointXYZ> sequence(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
+                                                                  double search_radius,
+                                                                  double epsilon = 1e-5);
+  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> split(const pcl::PointCloud<pcl::PointXYZ>& sequenced_points,
+                                                                         double split_dist);
+
 
 
   log4cxx::LoggerPtr logger_;
