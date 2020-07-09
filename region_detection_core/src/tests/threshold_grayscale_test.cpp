@@ -26,7 +26,7 @@ int const max_threshold_enabled = 1;
 int const max_type = cv::ThresholdTypes::THRESH_TOZERO_INV;
 int const max_binary_value = 255;
 
-
+int dilation_enabled = 1;
 int dilation_elem = 0;
 int dilation_size = 1;
 int const max_elem = 2;
@@ -65,8 +65,65 @@ cv::RNG rng(12345);
 
 Mat src, src_gray, dst, inverted;
 const char* window_name = "Countour detection";
-const char* trackbar_type = "Type: \n 0: Binary \n 1: Binary Inverted \n 2: Truncate \n 3: To Zero \n 4: To Zero Inverted";
-const char* trackbar_value = "Value";
+const char* trackbar_type = "Threshold Type: \n 0: Binary, 1: Binary Inverted, 2: Truncate, 3: To Zero, 4: To Zero Inverted\n";
+const char* trackbar_value = "Threshold Value";
+
+/**
+ * Perform one thinning iteration.
+ * Normally you wouldn't call this function directly from your code.
+ *
+ * @param  im    Binary image with range = 0-1
+ * @param  iter  0=even, 1=odd
+ */
+void thinningGuoHallIteration(cv::Mat& im, int iter)
+{
+    cv::Mat marker = cv::Mat::zeros(im.size(), CV_8UC1);
+
+    for (int i = 1; i < im.rows; i++)
+    {
+        for (int j = 1; j < im.cols; j++)
+        {
+            uchar p2 = im.at<uchar>(i-1, j);
+            uchar p3 = im.at<uchar>(i-1, j+1);
+            uchar p4 = im.at<uchar>(i, j+1);
+            uchar p5 = im.at<uchar>(i+1, j+1);
+            uchar p6 = im.at<uchar>(i+1, j);
+            uchar p7 = im.at<uchar>(i+1, j-1);
+            uchar p8 = im.at<uchar>(i, j-1);
+            uchar p9 = im.at<uchar>(i-1, j-1);
+
+            int C  = (!p2 & (p3 | p4)) + (!p4 & (p5 | p6)) +
+                     (!p6 & (p7 | p8)) + (!p8 & (p9 | p2));
+            int N1 = (p9 | p2) + (p3 | p4) + (p5 | p6) + (p7 | p8);
+            int N2 = (p2 | p3) + (p4 | p5) + (p6 | p7) + (p8 | p9);
+            int N  = N1 < N2 ? N1 : N2;
+            int m  = iter == 0 ? ((p6 | p7 | !p9) & p8) : ((p2 | p3 | !p5) & p4);
+
+            if (C == 1 && (N >= 2 && N <= 3) & m == 0)
+                marker.at<uchar>(i,j) = 1;
+        }
+    }
+
+    im &= ~marker;
+}
+
+void thinningGuoHall(cv::Mat& im)
+{
+    im /= 255;
+
+    cv::Mat prev = cv::Mat::zeros(im.size(), CV_8UC1);
+    cv::Mat diff;
+
+    do {
+        thinningGuoHallIteration(im, 0);
+        thinningGuoHallIteration(im, 1);
+        cv::absdiff(im, prev, diff);
+        im.copyTo(prev);
+    }
+    while (cv::countNonZero(diff) > 0);
+
+    im *= 255;
+}
 
 //![updateImage]
 /**
@@ -84,7 +141,7 @@ static void updateImage( int, void* )
   inverted = cv::Scalar_<uint8_t>(255) - src_gray;
   dst = inverted.clone();
 
-  if(dilation_size > 0)
+  if(dilation_enabled)
   {
     int dilation_type = 0;
     if( dilation_elem == 0 ){ dilation_type = MORPH_RECT; }
@@ -111,6 +168,8 @@ static void updateImage( int, void* )
     std::cout<<"Skipping Threshold" << std::endl;
   }
 
+
+
   // canny edge detection
   if(canny_cfg.enable == 1)
   {
@@ -125,6 +184,9 @@ static void updateImage( int, void* )
   {
     std::cout<<"Skipping Canny" << std::endl;
   }
+
+  // thining
+  thinningGuoHall(dst);
 
   // contour
   if(contour_cfg.enable == 1)
@@ -230,7 +292,11 @@ int main( int argc, char** argv )
           updateImage );
 
   //! [Dilation trackbars]
-  createTrackbar( "Dilation Element:\n 0: Rect \n 1: Cross \n 2: Ellipse", window_name,
+  createTrackbar( "Dilation Enabled", window_name,
+          &dilation_enabled,
+          1,
+          updateImage );
+  createTrackbar( "Dilation Element:\n 0: Rect , 1: Cross, 2: Ellipse", window_name,
           &dilation_elem,
           max_elem,
           updateImage );

@@ -5,14 +5,14 @@ debug_wait_key: false
 threshold:
   type: 2
   enable: false
-  value: 150
+  value: 200
 canny:
   enable: true
-  lower_threshold: 20
+  lower_threshold: 100
   upper_threshold: 200
   aperture_size: 1
 dilation:
-  enable: true
+  enable: false
   elem: 2 # 0: Rect, 1: Cross, 2: Ellipse
   kernel_size: 1 # 2n + 1
 contour:

@@ -56,7 +56,7 @@ typedef std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3
 
 static const std::string REGIONS_MARKERS_TOPIC = "regions_results";
 static const std::string INPUT_CLOUD_TOPIC = "regions_cloud_input";
-static const std::string WORLD_FRAME_ID = "world";
+static const std::string REFERENCE_FRAME_ID = "results_frame";
 
 static geometry_msgs::Pose pose3DtoPoseMsg(const std::array<float, 6>& p)
 {
@@ -205,7 +205,7 @@ RegionDetectionConfig::OpenCVCfg loadOpenCVParams()
   RegionDetectionConfig::OpenCVCfg cfg;
 
   // top level parameters
-  ph = ros::NodeHandle("~/config2d");
+  ph = ros::NodeHandle("~/config_opencv");
   success = ph.getParam("invert_image", cfg.invert_image) &&
     ph.getParam("debug_mode_enable", cfg.debug_mode_enable)&&
     ph.getParam("debug_window_name", cfg.debug_window_name)&&
@@ -217,7 +217,7 @@ RegionDetectionConfig::OpenCVCfg loadOpenCVParams()
   }
 
   param_ns = "threshold";
-  ph = ros::NodeHandle("~/config2d/" + param_ns);
+  ph = ros::NodeHandle("~/config_opencv/" + param_ns);
   success =  ph.getParam("enable",cfg.threshold.enable) &&
      ph.getParam("value",cfg.threshold.value ) &&
      ph.getParam("type",cfg.threshold.type );
@@ -228,7 +228,7 @@ RegionDetectionConfig::OpenCVCfg loadOpenCVParams()
   }
 
   param_ns = "dilation";
-  ph = ros::NodeHandle("~/config2d/" + param_ns);
+  ph = ros::NodeHandle("~/config_opencv/" + param_ns);
   success =  ph.getParam("enable",cfg.dilation.enable) &&
      ph.getParam("elem",cfg.dilation.elem) &&
      ph.getParam("kernel_size",cfg.dilation.kernel_size);
@@ -239,7 +239,7 @@ RegionDetectionConfig::OpenCVCfg loadOpenCVParams()
   }
 
   param_ns = "canny";
-  ph = ros::NodeHandle("~/config2d/" + param_ns);
+  ph = ros::NodeHandle("~/config_opencv/" + param_ns);
   success =  ph.getParam("enable",cfg.canny.enable) &&
      ph.getParam("lower_threshold",cfg.canny.lower_threshold) &&
      ph.getParam("upper_threshold",cfg.canny.upper_threshold) &&
@@ -251,7 +251,7 @@ RegionDetectionConfig::OpenCVCfg loadOpenCVParams()
   }
 
   param_ns = "contour";
-  ph = ros::NodeHandle("~/config2d/" + param_ns);
+  ph = ros::NodeHandle("~/config_opencv/" + param_ns);
   success =  ph.getParam("mode",cfg.contour.mode) &&
      ph.getParam("method",cfg.contour.method);
   if(!success)
@@ -263,6 +263,27 @@ RegionDetectionConfig::OpenCVCfg loadOpenCVParams()
   return cfg;
 }
 
+RegionDetectionConfig::PCL2DCfg loadPCL2DParams()
+{
+  RegionDetectionConfig::PCL2DCfg cfg;
+  ros::NodeHandle ph("~");
+  bool success;
+  std::string param_ns;
+
+  ph = ros::NodeHandle("~/config_pcl2d");
+  success =  ph.getParam("downsampling_radius",cfg.downsampling_radius) &&
+     ph.getParam("split_dist",cfg.split_dist ) &&
+     ph.getParam("closed_curve_max_dist",cfg.closed_curve_max_dist ) &&
+     ph.getParam("simplification_min_points",cfg.simplification_min_points ) &&
+     ph.getParam("simplification_alpha",cfg.simplification_alpha );
+  if(!success)
+  {
+   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % "config_pcl2d top level");
+   throw std::runtime_error(err_msg);
+  }
+  return cfg;
+}
+
 RegionDetectionConfig::PCLCfg loadPCLParams()
 {
   RegionDetectionConfig::PCLCfg cfg;
@@ -271,9 +292,12 @@ RegionDetectionConfig::PCLCfg loadPCLParams()
   std::string param_ns;
 
   // top level parameters
-  ph = ros::NodeHandle("~/config3d");
+  ph = ros::NodeHandle("~/config_pcl");
   success =  ph.getParam("debug_mode_enable",cfg.debug_mode_enable) &&
-     ph.getParam("max_merge_dist",cfg.max_merge_dist );
+     ph.getParam("max_merge_dist",cfg.max_merge_dist ) &&
+     ph.getParam("closed_curve_max_dist",cfg.closed_curve_max_dist ) &&
+     ph.getParam("simplification_min_dist",cfg.simplification_min_dist ) &&
+     ph.getParam("min_num_points",cfg.min_num_points );
   if(!success)
   {
    std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % "top level");
@@ -281,7 +305,7 @@ RegionDetectionConfig::PCLCfg loadPCLParams()
   }
 
   param_ns = "stat_removal";
-  ph = ros::NodeHandle("~/config3d/" + param_ns);
+  ph = ros::NodeHandle("~/config_pcl/" + param_ns);
   success =  ph.getParam("enable",cfg.stat_removal.enable) &&
       ph.getParam("kmeans",cfg.stat_removal.kmeans) &&
      ph.getParam("stddev",cfg.stat_removal.stddev );
@@ -291,32 +315,13 @@ RegionDetectionConfig::PCLCfg loadPCLParams()
    throw std::runtime_error(err_msg);
   }
 
-  param_ns = "downsample";
-  ph = ros::NodeHandle("~/config3d/" + param_ns);
-  success =  ph.getParam("enable",cfg.downsample.enable) &&
-     ph.getParam("voxel_leafsize",cfg.downsample.voxel_leafsize );
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
-   throw std::runtime_error(err_msg);
-  }
-
-  param_ns = "sequencing";
-  ph = ros::NodeHandle("~/config3d/" + param_ns);
-  success =  ph.getParam("kdtree_epsilon",cfg.sequencing.kdtree_epsilon) &&
-      ph.getParam("search_radius",cfg.sequencing.search_radius);
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
-   throw std::runtime_error(err_msg);
-  }
-
   param_ns = "normal_est";
   std::vector<double> viewpoint_vals(6);
-  ph = ros::NodeHandle("~/config3d/" + param_ns);
+  ph = ros::NodeHandle("~/config_pcl/" + param_ns);
   success =  ph.getParam("kdtree_epsilon",cfg.normal_est.kdtree_epsilon) &&
       ph.getParam("search_radius",cfg.normal_est.search_radius) &&
-      ph.getParam("viewpoint_xyz",viewpoint_vals);
+      ph.getParam("viewpoint_xyz",viewpoint_vals) &&
+      ph.getParam("downsampling_radius",cfg.normal_est.downsampling_radius) ;
   std::copy(viewpoint_vals.begin(), viewpoint_vals.end(), cfg.normal_est.viewpoint_xyz.begin());
   if(!success)
   {
@@ -421,6 +426,7 @@ int main(int argc, char** argv)
   // getting configuration parameters
   RegionDetectionConfig cfg;
   cfg.opencv_cfg = loadOpenCVParams();
+  cfg.pcl_2d_cfg = loadPCL2DParams();
   cfg.pcl_cfg = loadPCLParams();
 
   ROS_INFO("Loaded configuration parameters");
@@ -455,23 +461,27 @@ int main(int argc, char** argv)
   int id = 0;
   for(auto& poses : results.closed_regions_poses)
   {
-/*    visualization_msgs::MarkerArray m = convertToAxisMarkers({poses},WORLD_FRAME_ID,"region" + std::to_string(id++),0, 0.001,
-                                                             0.01,{0,0,0,0,0,0});*/
-    visualization_msgs::MarkerArray m = convertToDottedLineMarker({poses},WORLD_FRAME_ID,"closed_regions" + std::to_string(id++));
+    id++;
+    visualization_msgs::MarkerArray m = convertToAxisMarkers({poses},REFERENCE_FRAME_ID,"closed_regions_axes" + std::to_string(id),0, 0.001,
+                                                             0.01,{0,0,0,0,0,0});
+    results_markers.markers.insert(results_markers.markers.end(), m.markers.begin(), m.markers.end());
 
+    m = convertToDottedLineMarker({poses},REFERENCE_FRAME_ID,"closed_regions_lines" + std::to_string(id));
     results_markers.markers.insert(results_markers.markers.end(), m.markers.begin(), m.markers.end());
   }
 
+  id = 0;
   for(auto& poses : results.open_regions_poses)
   {
-/*    visualization_msgs::MarkerArray m = convertToAxisMarkers({poses},WORLD_FRAME_ID,"region" + std::to_string(id++),0, 0.001,
-                                                             0.01,{0,0,0,0,0,0});*/
-    visualization_msgs::MarkerArray m = convertToDottedLineMarker({poses},WORLD_FRAME_ID,
-                                                                  "open_regions" + std::to_string(id++),
+    id++;
+    visualization_msgs::MarkerArray m = convertToAxisMarkers({poses},REFERENCE_FRAME_ID,"open_regions_axes" + std::to_string(id),0, 0.001,
+                                                             0.01,{0,0,0,0,0,0});
+    results_markers.markers.insert(results_markers.markers.end(), m.markers.begin(), m.markers.end());
+
+    m = convertToDottedLineMarker({poses},REFERENCE_FRAME_ID,"open_regions_lines" + std::to_string(id),
                                                                   0,
                                                                   {1.0, 0.2, 0.2, 1.0},
                                                                   {0.2, 0.2, 0.2, 1.0});
-
     results_markers.markers.insert(results_markers.markers.end(), m.markers.begin(), m.markers.end());
   }
 
@@ -483,7 +493,7 @@ int main(int argc, char** argv)
     pcl::fromPCLPointCloud2(data.cloud_blob,*color_cloud);
     input_cloud += (*color_cloud);
   }
-  input_cloud.header.frame_id = WORLD_FRAME_ID;
+  input_cloud.header.frame_id = REFERENCE_FRAME_ID;
 
 
   ros::Duration loop_pause(0.2);
