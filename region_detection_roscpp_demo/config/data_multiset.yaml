@@ -1,0 +1,6 @@
+- image_file: left/color.png
+  cloud_file: left/point_cloud.pcd
+  transform: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+- image_file: right/color.png
+  cloud_file: right/point_cloud.pcd
+  transform: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

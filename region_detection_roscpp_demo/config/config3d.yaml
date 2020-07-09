@@ -1,16 +1,14 @@
 debug_mode_enable: false
 max_merge_dist: 0.01
+closed_curve_max_dist: 0.01
+simplification_min_dist: 0.01
+min_num_points: 10
 stat_removal:
   enable: true
-  kmeans: 500
+  kmeans: 100
   stddev: 5.0
-downsample:
-  enable: false
-  voxel_leafsize: 0.005
-sequencing:
-  kdtree_epsilon: 0.001
-  search_radius: 0.01
 normal_est:
-  search_radius: 0.01
+  downsampling_radius: 0.01
+  search_radius: 0.02
   kdtree_epsilon: 0.001
-  viewpoint_xyz: [0.0, 0.0, 100.0]
+  viewpoint_xyz: [0.0, 0.0, 0.0]
