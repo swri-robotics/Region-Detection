@@ -44,16 +44,19 @@
 #include <log4cxx/patternlayout.h>
 #include <log4cxx/consoleappender.h>
 
+#include <pcl/common/transforms.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/conversions.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/surface/concave_hull.h>
 
 #include "region_detection_core/region_detector.h"
 
 static const std::map<int,int> DILATION_TYPES = {{0, cv::MORPH_RECT}, {1, cv::MORPH_CROSS},{2, cv::MORPH_ELLIPSE}};
 static cv::RNG RANDOM_NUM_GEN(12345);
+static const int MIN_PIXEL_DISTANCE = 1; // used during interpolation in pixel space
 static const double MIN_POINT_DIST = 1e-8;
 
 log4cxx::LoggerPtr createDefaultLogger(const std::string& logger_name)
@@ -127,11 +130,21 @@ void dowsampleCloud(pcl::PointCloud<pcl::PointXYZ>& cloud, double leafsize = 1.0
   voxelizer.filter(cloud);
 }
 
+pcl::PointCloud<pcl::PointXYZ>::Ptr concaveHullSimplification(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr closed_polygon,
+                                                                           double segment_length)
+{
+  pcl::PointCloud<pcl::PointXYZ>::Ptr simplified_polygon = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+  pcl::ConcaveHull<pcl::PointXYZ> chull;
+  chull.setInputCloud(closed_polygon);
+  chull.setAlpha(segment_length);
+  chull.reconstruct(*simplified_polygon);
+  return simplified_polygon;
+}
+
 namespace region_detection_core
 {
 
 pcl::PointCloud<pcl::PointXYZ> RegionDetector::sequence(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
-                                                                double search_radius,
                                                                 double epsilon)
 {
   using namespace pcl;
@@ -226,59 +239,6 @@ pcl::PointCloud<pcl::PointXYZ> RegionDetector::sequence(pcl::PointCloud<pcl::Poi
     sequenced_points.push_back(closest_point);
   }
 
-  // inserting unsequenced points
-  if(sequenced_indices.size() != max_iters)
-  {
-    std::string err_msg = boost::str(
-        boost::format("Not all points were sequenced in the first attempt, only got %lu out of %lu") %
-        sequenced_indices.size() % max_iters);
-    LOG4CXX_DEBUG(logger_,err_msg)
-    //return Result(false,err_msg);
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr sequenced_points_clone = sequenced_points.makeShared();
-    for(std::size_t idx : unsequenced_indices)
-    {
-      const int k_points = 2;
-      std::vector<int> k_indices(k_points);
-      std::vector<float> k_sqr_distances(k_points);
-      search_point = cloud[idx];
-      sequencing_kdtree.setInputCloud(sequenced_points_clone);
-      sequencing_kdtree.setSortedResults(true);
-      //int points_found = sequencing_kdtree.nearestKSearch(search_point,k_points, k_indices, k_sqr_distances);
-      int points_found = sequencing_kdtree.radiusSearch(search_point,search_radius,
-                                                        k_indices, k_sqr_distances, k_points);
-      if(points_found == 1)
-      {
-        std::size_t insert_loc = k_indices[0] >= sequenced_points_clone->size() ? sequenced_points_clone->size()
-            : (k_indices[0] +1) ;
-        sequenced_points_clone->insert(sequenced_points_clone->begin() + insert_loc ,search_point);
-      }
-      else if (points_found > 1)
-      {
-        Eigen::Vector3d v1 = (search_point.getVector3fMap() -
-            sequenced_points_clone->at(k_indices[0]).getVector3fMap()).cast<double>();
-        Eigen::Vector3d v2 = (sequenced_points_clone->at(k_indices[1]).getVector3fMap() -
-            sequenced_points_clone->at(k_indices[0]).getVector3fMap()).cast<double>();
-
-        double angle = std::acos((v1.dot(v2))/(v1.norm() * v2.norm()));
-        std::size_t insert_loc = angle > M_PI_2 ? k_indices[0] + 1 : k_indices[0] ;
-        insert_loc = insert_loc >= sequenced_points_clone->size() ? sequenced_points_clone->size() :
-            insert_loc ;
-        sequenced_points_clone->insert(sequenced_points_clone->begin() + insert_loc ,search_point);
-      }
-      else if (points_found <= 0)
-      {
-        std::string err_msg = boost::str(
-            boost::format("Point with index %i has no neighbors and will be excluded") % idx);
-        LOG4CXX_WARN(logger_,err_msg)
-        continue;
-      }
-
-      sequenced_points.clear();
-      pcl::copyPointCloud(*sequenced_points_clone, sequenced_points);
-    }
-  }
-
   LOG4CXX_DEBUG(logger_,"Sequenced " << sequenced_points.size() << " points from "<< cloud.size());
   return sequenced_points;
 }
@@ -344,6 +304,31 @@ std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> RegionDetector::split(const pcl
 
   LOG4CXX_DEBUG(logger_,"Computed " << sequenced_points_vec.size() <<" sequences");
   return sequenced_points_vec;
+}
+
+void RegionDetector::findClosedCurves(const std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& sequenced_curves_vec, double max_dist,
+                                 std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves_vec,
+                                 std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& open_curves_vec)
+{
+  // check if closed, it is assumed that the points have already been sequenced
+  for(pcl::PointCloud<pcl::PointXYZ>::Ptr curve_points : sequenced_curves_vec)
+  {
+    Eigen::Vector3d diff = (curve_points->front().getArray3fMap() - curve_points->back().getArray3fMap()).cast<double>();
+    if(diff.norm() < max_dist)
+    {
+      // copying first point to end of cloud to close the curve
+      curve_points->push_back(curve_points->front());
+
+      // saving
+      closed_curves_vec.push_back(curve_points);
+      LOG4CXX_DEBUG(logger_,"Found closed curve with "<< curve_points->size() << " points");
+    }
+    else
+    {
+      open_curves_vec.push_back(curve_points);
+      LOG4CXX_DEBUG(logger_,"Found open curve with "<< curve_points->size() << " points");
+    }
+  }
 }
 
 RegionDetector::RegionDetector(log4cxx::LoggerPtr logger):
@@ -424,13 +409,13 @@ void RegionDetector::updateDebugWindow(const cv::Mat& im) const
   }
 
   // check if window is open
-  const std::string wname = opencv_cfg.debug_window_name;
+  const std::string wname = opencv_cfg.debug_window_name + std::to_string(window_counter_);
   if(cv::getWindowProperty(wname, cv::WND_PROP_VISIBLE) <= 0)
   {
     // create window then
     namedWindow(wname, WINDOW_AUTOSIZE);
-/*    std::string msg = boost::str(boost::format("Created opencv window \"%s\"") % wname );
-    LOG4CXX_DEBUG(logger_,msg);*/
+    std::string msg = boost::str(boost::format("Created opencv window \"%s\"") % wname );
+    LOG4CXX_DEBUG(logger_,msg);
   }
 
   imshow( wname, im.clone() );
@@ -443,11 +428,12 @@ void RegionDetector::updateDebugWindow(const cv::Mat& im) const
 }
 
 RegionDetector::Result RegionDetector::compute2dContours( cv::Mat input,
-                                                           std::vector<std::vector<cv::Point> >& contours_indices) const
+                                                           std::vector<std::vector<cv::Point> >& contours_indices,
+                                                           cv::Mat& output) const
 {
   bool success = false;
   std::string err_msg;
-  cv::Mat output = input;
+  output = input;
   const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
 
   //  ======================== convert to grayscale ========================
@@ -493,7 +479,7 @@ RegionDetector::Result RegionDetector::compute2dContours( cv::Mat input,
     updateDebugWindow(output);
   }
 
-  //threshold( src_gray, dst, threshold_value, max_binary_value, threshold_type );
+  //  ======================== Threshold ========================
   if(config.threshold.enable)
   {
     cv::threshold( output.clone(), output, config.threshold.value, config.threshold.MAX_BINARY_VALUE,
@@ -505,7 +491,7 @@ RegionDetector::Result RegionDetector::compute2dContours( cv::Mat input,
   //  ======================== Canny Edge Detection ========================
   if(config.canny.enable)
   {
-    decltype(output) detected_edges;
+    cv::Mat detected_edges;
     int aperture_size = 2 * config.canny.aperture_size + 1;
     aperture_size = aperture_size < 3  ? 3 : aperture_size;
     cv::Canny( output.clone(), detected_edges, config.canny.lower_threshold, config.canny.upper_threshold, aperture_size );
@@ -544,16 +530,21 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
                                                       RegionDetector::RegionResults& regions)
 {
   using namespace pcl;
-  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> all_closed_contours_points;
+  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> closed_contours_points, open_contours_points;
   pcl::PointCloud<pcl::PointNormal>::Ptr normals = boost::make_shared<pcl::PointCloud<pcl::PointNormal>>();
 
   Result res;
-  static const int MIN_PIXEL_DISTANCE = 1;
+  window_counter_ = 0;
   for(const DataBundle& data : input)
   {
+    window_counter_++;
+
+    // ============================== Open CV =================================== //
     std::vector<std::vector<cv::Point> > contours_indices;
     LOG4CXX_DEBUG(logger_,"Computing 2d contours");
-    res = compute2dContours(data.image, contours_indices);
+    cv::Mat output;
+    res = compute2dContours(data.image, contours_indices, output);
+    regions.images.push_back(output);
     if(!res)
     {
       return false;
@@ -591,6 +582,7 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
       contours_indices[i] = interpolated_indices;
     }
 
+    // ============================== PCL 2D (pixel coordinates z= 0) =================================== //
     // converting to cloud type for further analysis
     std::vector<PointCloud<PointXYZ>> contours_indices_clouds_vec;
     for(std::size_t i = 0; i < contours_indices.size(); i++)
@@ -600,40 +592,77 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
       contours_indices_clouds_vec.push_back(contour_indices_cloud);
     }
 
-
     // downsampling
+    const RegionDetectionConfig::PCL2DCfg& pcl2d_cfg = cfg_->pcl_2d_cfg;
     int search_radius_2d = 4;
     for(std::size_t i = 0; i < contours_indices_clouds_vec.size(); i++)
     {
-      dowsampleCloud(contours_indices_clouds_vec[i],search_radius_2d);
+      if(pcl2d_cfg.downsampling_radius > 0)
+      {
+        dowsampleCloud(contours_indices_clouds_vec[i],pcl2d_cfg.downsampling_radius);
+      }
     }
 
     // sequence
     for(std::size_t i = 0; i < contours_indices_clouds_vec.size(); i++)
     {
-      contours_indices_clouds_vec[i] = sequence(contours_indices_clouds_vec[i].makeShared(),search_radius_2d/2.0);
+      contours_indices_clouds_vec[i] = sequence(contours_indices_clouds_vec[i].makeShared());
     }
 
     // split
-    std::vector<PointCloud<PointXYZ>::Ptr> new_contours_indices_cloud;
+    std::vector<PointCloud<PointXYZ>::Ptr> contours_indices_cloud_vec;
     for(std::size_t i = 0; i < contours_indices_clouds_vec.size(); i++)
     {
-      std::vector<PointCloud<PointXYZ>::Ptr> temp_contours_indices_cloud = split(contours_indices_clouds_vec[i],1.5 * search_radius_2d);
-      new_contours_indices_cloud.insert(new_contours_indices_cloud.end(),temp_contours_indices_cloud.begin(),
-                                        temp_contours_indices_cloud.end());
+      std::vector<PointCloud<PointXYZ>::Ptr> temp_indices_cloud_vec = split(contours_indices_clouds_vec[i],
+                                                                            pcl2d_cfg.split_dist);
+      contours_indices_cloud_vec.insert(contours_indices_cloud_vec.end(),temp_indices_cloud_vec.begin(),
+                                        temp_indices_cloud_vec.end());
     }
+
+    // find closed curves
+    std::vector<PointCloud<PointXYZ>::Ptr> closed_indices_curves_vec, open_indices_curves_vec;
+    findClosedCurves(contours_indices_cloud_vec, pcl2d_cfg.closed_curve_max_dist, closed_indices_curves_vec, open_indices_curves_vec);
+
+    // simplification of closed curves
+    for(std::size_t i = 0; i < closed_indices_curves_vec.size(); i++)
+    {
+      int pre_simplified_size = closed_indices_curves_vec[i]->size();
+      if(pre_simplified_size < pcl2d_cfg.simplification_min_points)
+      {
+        continue;
+      }
+      closed_indices_curves_vec[i] = concaveHullSimplification(closed_indices_curves_vec[i], pcl2d_cfg.simplification_alpha);
+      LOG4CXX_DEBUG(logger_,"Concave hull simplified cloud from "<< pre_simplified_size <<
+                    " to "<< closed_indices_curves_vec[i]->size());
+      *closed_indices_curves_vec[i] = sequence(closed_indices_curves_vec[i]->makeShared());
+      closed_indices_curves_vec[i]->push_back(closed_indices_curves_vec[i]->front());
+    }
+
+    // combining closed and open back into single vec
+    contours_indices_cloud_vec.clear();
+    contours_indices_cloud_vec.insert(contours_indices_cloud_vec.end(),
+                                      closed_indices_curves_vec.begin(),
+                                      closed_indices_curves_vec.end());
+    contours_indices_cloud_vec.insert(contours_indices_cloud_vec.end(),
+                                      open_indices_curves_vec.begin(),
+                                      open_indices_curves_vec.end());
 
     // converting to cv points
     contours_indices.clear();
-    for(auto& cloud :new_contours_indices_cloud)
+    for(auto& cloud :contours_indices_cloud_vec)
     {
       std::vector<cv::Point> temp_indices = convertCloudTo2DContour(*cloud);
       contours_indices.push_back(temp_indices);
     }
 
-    // convert blob to xyz cloud type
+    // ============================== PCL 3D (x, y and z coordinates) =================================== //
+
+    // converting input cloud blob into point cloud of specified point type
     pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud = boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
     pcl::fromPCLPointCloud2(data.cloud_blob,*input_cloud);
+
+    // transform cloud
+    pcl::transformPointCloud(*input_cloud,*input_cloud,data.transform.cast<float>());
 
     // extract contours 3d points from 2d pixel locations
     std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> contours_points;
@@ -644,17 +673,18 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
       return false;
     }
 
+    // cleaning data
     for(auto& contour : contours_points)
     {
       // removing nans
-      LOG4CXX_DEBUG(logger_,"Cloud NAN removal");
       std::vector<int> nan_indices = {};
+      LOG4CXX_DEBUG(logger_,"NaN Removal");
       pcl::removeNaNFromPointCloud(*contour, *contour,nan_indices);
 
       // statistical outlier removal
       if(cfg_->pcl_cfg.stat_removal.enable)
       {
-        LOG4CXX_DEBUG(logger_,"Cloud Statistical Outlier Removal");
+        LOG4CXX_DEBUG(logger_,"Statistical Outlier Removal");
         pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
         sor.setInputCloud (contour->makeShared());
         sor.setMeanK (cfg_->pcl_cfg.stat_removal.kmeans);
@@ -663,7 +693,7 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
       }
     }
 
-    LOG4CXX_DEBUG(logger_,"Computing normals for contour points");
+    LOG4CXX_DEBUG(logger_,"Computing normals");
     std::vector<pcl::PointCloud<pcl::PointNormal>::Ptr> contours_point_normals;
     res = computeNormals(input_cloud,contours_points,contours_point_normals);
     if(!res)
@@ -672,8 +702,19 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
     }
 
     // adding found curves
-    all_closed_contours_points.insert(all_closed_contours_points.end(),contours_points.begin(),
-                                      contours_points.end());
+    if(!closed_indices_curves_vec.empty())
+    {
+      closed_contours_points.insert(closed_contours_points.end(),
+                                    contours_points.begin(),
+                                    std::next(contours_points.begin(),closed_indices_curves_vec.size()));
+    }
+
+    if(!open_indices_curves_vec.empty())
+    {
+      open_contours_points.insert(open_contours_points.end(),
+                                    std::next(contours_points.begin(),closed_indices_curves_vec.size()),
+                                    contours_points.end());
+    }
 
     // adding point normals
     for(auto& cn : contours_point_normals)
@@ -682,23 +723,72 @@ bool RegionDetector::compute(const std::vector<DataBundle> &input,
     }
   }
 
+  // combining open curves to form closed ones
   std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> closed_curves_points, open_curves_points;
-  LOG4CXX_DEBUG(logger_,"Computing closed regions");
-  res = computeClosedRegions(all_closed_contours_points, closed_curves_points, open_curves_points);
-  std::string msg = boost::str(boost::format("Found %i closed regions and %s open regions") % closed_curves_points.size() %
-                               open_curves_points.size() );
-  LOG4CXX_DEBUG(logger_, msg)
+  LOG4CXX_DEBUG(logger_,"Computing closed contours from "<< open_contours_points.size()<<" open curves");
+  res = combineIntoClosedRegions(open_contours_points, closed_curves_points, open_curves_points);
+
+  // adding to existing vector of closed and open curves
+  closed_contours_points.insert(closed_contours_points.end(),closed_curves_points.begin(),
+                                closed_curves_points.end());
+  open_contours_points = open_curves_points;
+
+  // simplifying by length
+  closed_contours_points = simplifyByMinimunLength(closed_contours_points, cfg_->pcl_cfg.simplification_min_dist);
+  open_contours_points = simplifyByMinimunLength(open_contours_points, cfg_->pcl_cfg.simplification_min_dist);
+
+  // filter out those with too few points
+  closed_contours_points.erase(std::remove_if(closed_contours_points.begin(),closed_contours_points.end(),
+                                              [this](pcl::PointCloud<pcl::PointXYZ>::Ptr& c){
+    return c->size() < cfg_->pcl_cfg.min_num_points;
+  }), closed_contours_points.end());
+
+  open_contours_points.erase(std::remove_if(open_contours_points.begin(),open_contours_points.end(),
+                                              [this](pcl::PointCloud<pcl::PointXYZ>::Ptr& c){
+    return c->size() < cfg_->pcl_cfg.min_num_points;
+  }), open_contours_points.end());
 
   LOG4CXX_DEBUG(logger_,"Computing curves normals");
-  computeRegionPoses(normals,open_curves_points,regions.open_regions_poses);
-  computeRegionPoses(normals,closed_curves_points,regions.closed_regions_poses);
-  if(!res)
-  {
-    return false;
-  }
+  computePoses(normals,open_contours_points,regions.open_regions_poses);
+  computePoses(normals,closed_contours_points,regions.closed_regions_poses);
 
-  LOG4CXX_INFO(logger_,"Region Detection complete, found "<< regions.closed_regions_poses.size() << " closed regions");
-  return true;
+  std::string msg = boost::str(boost::format("Found %i closed regions and %i open regions") % regions.closed_regions_poses.size() %
+                               regions.open_regions_poses.size() );
+  if(!regions.closed_regions_poses.empty())
+  {
+    LOG4CXX_ERROR(logger_, msg);
+  }
+  else
+  {
+    LOG4CXX_INFO(logger_, msg);
+  }
+  return !regions.closed_regions_poses.empty();
+}
+
+std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> RegionDetector::simplifyByMinimunLength(const std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>&
+                                                                                    segments, double min_length)
+{
+  using namespace pcl;
+  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> simplified_segments;
+  for(const auto& segment: segments)
+  {
+    PointCloud<PointXYZ>::Ptr simplified_segment = boost::make_shared<PointCloud<PointXYZ>>();
+    simplified_segment->push_back(segment->front());
+    for(std::size_t i = 1; i < segment->size() -1 ; i++)
+    {
+      const auto& p0 = simplified_segment->back();
+      const auto& p1 = segment->at(i);
+      Eigen::Vector3f diff = (p0.getArray3fMap() - p1.getArray3fMap());
+      if(diff.norm() > min_length)
+      {
+        simplified_segment->push_back(p1);
+      }
+    }
+    simplified_segment->push_back(segment->back());
+
+    simplified_segments.push_back(simplified_segment);
+  }
+  return simplified_segments;
 }
 
 RegionDetector::Result RegionDetector::extractContoursFromCloud(
@@ -741,55 +831,15 @@ RegionDetector::Result RegionDetector::extractContoursFromCloud(
   return Result(!contours_points.empty(),"");
 }
 
-RegionDetector::Result RegionDetector::computeClosedRegions(
+RegionDetector::Result RegionDetector::combineIntoClosedRegions(
     const std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& contours_points,
     std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& closed_curves,
     std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& open_curves)
 {
   using namespace pcl;
-  // applying downsampling of each point cloud
 
   std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> output_contours_points;
   output_contours_points.assign(contours_points.begin(),contours_points.end());
-
-  // downsampling
-  if(cfg_->pcl_cfg.downsample.enable)
-  {
-    VoxelGrid<PointXYZ> voxelizer;
-    double lf = cfg_->pcl_cfg.downsample.voxel_leafsize;
-    voxelizer.setLeafSize(lf, lf, lf);
-    for(std::size_t i = 0; i < output_contours_points.size(); i++)
-    {
-      PointCloud<PointXYZ>::Ptr downsampled_cloud = boost::make_shared<PointCloud<PointXYZ>>();
-      voxelizer.setInputCloud(output_contours_points[i]);
-      voxelizer.filter(*downsampled_cloud);
-      LOG4CXX_ERROR(logger_,"Downsampled curve from " << output_contours_points[i]->size() <<
-                    " to "<< downsampled_cloud->size());
-      output_contours_points[i] = downsampled_cloud;
-    }
-  }
-
-  // sequence points
-/*  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> sequenced_contours_points;
-  for(std::size_t i = 0; i < output_contours_points.size(); i++)
-  {
-    auto temp_cloud = output_contours_points[i]->makeShared();
-    output_contours_points[i]->clear();
-    LOG4CXX_ERROR(logger_,"Sequencing curve " << i);
-    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> temp_points_vec;
-    if(!sequencePoints(temp_cloud,temp_points_vec))
-    {
-      std::string err_msg = "Failed to sequence point cloud";
-      LOG4CXX_ERROR(logger_,err_msg)
-      return Result(false,err_msg);
-    }
-    sequenced_contours_points.insert(sequenced_contours_points.end(),
-                                     temp_points_vec.begin(), temp_points_vec.end());
-
-  }
-  output_contours_points.clear();
-  output_contours_points.insert(output_contours_points.end(),sequenced_contours_points.begin(),
-                                sequenced_contours_points.end());*/
 
   std::vector<int> merged_curves_indices;
   // find closed curves
@@ -802,10 +852,9 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
       continue;
     }
 
-    LOG4CXX_DEBUG(logger_,"Attempting to merge Curve "<< i );
-
     // get curve
     PointCloud<PointXYZ>::Ptr curve_points = output_contours_points[i]->makeShared();
+    LOG4CXX_DEBUG(logger_,"Attempting to merge Curve "<< i <<" with "<< curve_points->size() <<" points");
 
     // create merge candidate index list
     std::vector<int> merge_candidate_indices;
@@ -827,7 +876,7 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
         if(std::find(merged_curves_indices.begin(), merged_curves_indices.end(), idx) != merged_curves_indices.end())
         {
           // already merged
-          LOG4CXX_DEBUG(logger_,"Curve "<< idx <<" has alredy been merged");
+          LOG4CXX_DEBUG(logger_,"\tCurve "<< idx <<" has already been merged");
           continue;
         }
 
@@ -839,7 +888,8 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
           merged_curves_indices.push_back(i);
           merged_curves_indices.push_back(idx);
           merged_curves = true;
-          LOG4CXX_DEBUG(logger_,"Merged Curve "<< idx <<" with "<< next_curve_points->size() << " points to curve "<< i);
+          LOG4CXX_DEBUG(logger_,"Merged Curve "<< idx <<" with "<< next_curve_points->size() << " points to curve "<< i <<
+              ", final curve has "<< curve_points->size() << " points");
         }
 
         // removing repeated
@@ -852,24 +902,25 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
 
     // check if closed
     Eigen::Vector3d diff = (curve_points->front().getArray3fMap() - curve_points->back().getArray3fMap()).cast<double>();
-    if(diff.norm() < cfg_->pcl_cfg.max_merge_dist)
+    if(diff.norm() < cfg_->pcl_cfg.closed_curve_max_dist)
     {
       // copying first point to end of cloud to close the curve
       curve_points->push_back(curve_points->front());
 
       // saving
       closed_curves.push_back(curve_points);
-      merged_curves_indices.push_back(i);
       LOG4CXX_DEBUG(logger_,"Found closed curve with "<< curve_points->size() << " points");
     }
     else
     {
       open_curves.push_back(curve_points);
-      LOG4CXX_DEBUG(logger_,"Found open curve with "<< curve_points->size() << " points");
+      LOG4CXX_DEBUG(logger_,"Copied curve "<< i << " into open curves vector");
     }
+
+    merged_curves_indices.push_back(i);
   }
 
-/*  // copying open curves that were not merged
+  // copying open curves that were not merged
   for(std::size_t i =0; i < output_contours_points.size(); i++)
   {
     if(std::find(merged_curves_indices.begin(),merged_curves_indices.end(), i) != merged_curves_indices.end())
@@ -877,8 +928,8 @@ RegionDetector::Result RegionDetector::computeClosedRegions(
       continue;
     }
     open_curves.push_back(output_contours_points[i]);
-    LOG4CXX_DEBUG(logger_,"Copied curve "<< i << " into open curves vector");
-  }*/
+    LOG4CXX_DEBUG(logger_,"Copied unmerged curve "<< i << " into open curves vector");
+  }
 
   if(closed_curves.empty())
   {
@@ -938,48 +989,26 @@ RegionDetector::Result RegionDetector::mergeCurves(pcl::PointCloud<pcl::PointXYZ
       break;
   }
 
-  // reorder just in case
-  std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> points_vec;
-  if(!sequencePoints(c1.makeShared(),points_vec))
-  {
-    std::string err_msg = "Failed to sequence merged curve";
-    LOG4CXX_ERROR(logger_,err_msg);
-    return Result(false,err_msg);
-  }
-
-  if(points_vec.size() > 1)
-  {
-    std::string err_msg = "Merged curve got split during sequencing";
-    LOG4CXX_ERROR(logger_,err_msg);
-    return Result(false,err_msg);
-  }
-  pcl::copyPointCloud(*points_vec.front(), merged);
+  //merged = sequence(c1.makeShared());
+  merged = c1;
   return true;
 }
 
-/*RegionDetector::Result RegionDetector::logAndReturn(bool success, const std::string &err_msg) const
-{
-  if(success && !err_msg.empty())
-  {
-    LOG4CXX_INFO(logger_, err_msg);
-  }
-  else
-  {
-    LOG4CXX_ERROR(logger_, err_msg);
-  }
-  return Result(success,err_msg);
-}*/
-
-RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::PointXYZ>::ConstPtr source_cloud,
-                                      std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> &curves_points,
+RegionDetector::Result RegionDetector::computeNormals(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr source_cloud,
+                                      const std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> &curves_points,
                                       std::vector<pcl::PointCloud<pcl::PointNormal>::Ptr> &curves_normals)
 {
 
+  const config_3d::NormalEstimationCfg& cfg = cfg_->pcl_cfg.normal_est;
+
+  // downsample first
+  pcl::PointCloud<pcl::PointXYZ>::Ptr source_cloud_downsampled = source_cloud->makeShared();
+  dowsampleCloud(*source_cloud_downsampled,cfg.downsampling_radius);
+
   // first compute normals
   pcl::PointCloud<pcl::PointNormal>::Ptr source_cloud_normals (new pcl::PointCloud<pcl::PointNormal>);
-  const config_3d::NormalEstimationCfg& cfg = cfg_->pcl_cfg.normal_est;
   pcl::NormalEstimation<pcl::PointXYZ, pcl::PointNormal> ne;
-  ne.setInputCloud(source_cloud);
+  ne.setInputCloud(source_cloud_downsampled);
   ne.setViewPoint(cfg.viewpoint_xyz[0], cfg.viewpoint_xyz[1], cfg.viewpoint_xyz[2]);
   pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
   ne.setSearchMethod (tree);
@@ -989,7 +1018,7 @@ RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::Point
   // create kdtree to search cloud with normals
   pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
   kdtree.setEpsilon(cfg.kdtree_epsilon);
-  kdtree.setInputCloud(source_cloud);
+  kdtree.setInputCloud(source_cloud_downsampled);
 
 
   const int MAX_NUM_POINTS = 1;
@@ -1002,8 +1031,7 @@ RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::Point
     curve_normals->reserve(curve->size());
     for(auto& search_p : *curve)
     {
-      int nearest_found = kdtree.radiusSearch(search_p,cfg.search_radius,nearest_indices,nearest_distances
-                                              , MAX_NUM_POINTS);
+      int nearest_found = kdtree.nearestKSearch(search_p,MAX_NUM_POINTS, nearest_indices, nearest_distances);
       if(nearest_found <=0 )
       {
         std::string err_msg = "Found no points near curve, can not get normal vector";
@@ -1020,7 +1048,7 @@ RegionDetector::Result RegionDetector::computeNormals(pcl::PointCloud<pcl::Point
   return true;
 }
 
-RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::PointNormal>::ConstPtr source_normal_cloud,
+RegionDetector::Result RegionDetector::computePoses(pcl::PointCloud<pcl::PointNormal>::ConstPtr source_normal_cloud,
                                                       std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> &curves_points,
                                                       std::vector<EigenPose3dVector>& curves_poses)
 {
@@ -1047,13 +1075,11 @@ RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::P
     curve_normals->reserve(curve->size());
     for(auto& search_p : *curve)
     {
-      int nearest_found = kdtree.radiusSearch(search_p,cfg.search_radius,nearest_indices,nearest_distances
-                                              , MAX_NUM_POINTS);
+      int nearest_found = kdtree.nearestKSearch(search_p,MAX_NUM_POINTS,nearest_indices,nearest_distances);
       if(nearest_found <=0 )
       {
         std::string err_msg = boost::str(
-            boost::format("Found no points near curve within a radius of %f, can not get normal vector")%
-            cfg.search_radius);
+            boost::format("Kdtree found no nearby points during pose computation"));
         LOG4CXX_ERROR(logger_,err_msg);
         return Result(false,err_msg);
       }
@@ -1097,215 +1123,6 @@ RegionDetector::Result RegionDetector::computeRegionPoses(pcl::PointCloud<pcl::P
     }
     curves_poses.push_back(curve_poses);
   }
-
-  return true;
-}
-
-RegionDetector::Result RegionDetector::sequencePoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
-                             std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr>& sequenced_points_vec)
-{
-  using namespace pcl;
-
-  const config_3d::SequencingCfg& cfg = cfg_->pcl_cfg.sequencing;
-
-  // build reordering kd tree
-  pcl::KdTreeFLANN<pcl::PointXYZ> sequencing_kdtree;
-  sequencing_kdtree.setEpsilon(cfg.kdtree_epsilon);
-  sequencing_kdtree.setSortedResults(true);
-
-  auto& cloud = *points;
-  std::vector<int> sequenced_indices, unsequenced_indices;
-  sequenced_indices.reserve(cloud.size());
-  unsequenced_indices.resize(cloud.size());
-  std::iota(unsequenced_indices.begin(), unsequenced_indices.end(),0);
-
-  // cloud of all sequenced points
-  pcl::PointCloud<pcl::PointXYZ> sequenced_points;
-  sequenced_points.reserve(cloud.size());
-
-  // search variables
-  int search_point_idx = 0;
-  const int max_iters = cloud.size();
-  PointXYZ search_point = cloud[search_point_idx];
-  PointXYZ start_point = search_point;
-  PointXYZ closest_point;
-  int iter_count = 0;
-
-  // now reorder based on proximity
-  while(iter_count <= max_iters)
-  {
-    iter_count++;
-
-    // remove from active
-    unsequenced_indices.erase(std::remove(unsequenced_indices.begin(), unsequenced_indices.end(),search_point_idx));
-
-    if(unsequenced_indices.empty())
-    {
-      break;
-    }
-
-    // set tree inputs;
-    IndicesConstPtr cloud_indices = boost::make_shared<const std::vector<int>>(unsequenced_indices);
-    sequencing_kdtree.setInputCloud(points,cloud_indices);
-    sequencing_kdtree.setSortedResults(true);
-
-    // find next point
-    const int k_points = 1;
-    std::vector<int> k_indices(k_points);
-    std::vector<float> k_sqr_distances(k_points);
-    int points_found = sequencing_kdtree.nearestKSearch(search_point,k_points, k_indices, k_sqr_distances);
-    if(points_found < k_points)
-    {
-      std::string err_msg = boost::str(boost::format(
-          "NearestKSearch Search did not find any points close to [%f, %f, %f]") %
-                                       search_point.x % search_point.y % search_point.z);
-      LOG4CXX_WARN(logger_,err_msg);
-      break;
-    }
-    // saving search point
-    if(sequenced_indices.empty())
-    {
-      sequenced_indices.push_back(search_point_idx); // insert first point
-      sequenced_points.push_back(search_point);
-    }
-
-    // insert new point if it has not been visited
-    if(std::find(sequenced_indices.begin(), sequenced_indices.end(),k_indices[0]) != sequenced_indices.end())
-    {
-      // there should be no more points to add
-      LOG4CXX_WARN(logger_,"Found repeated point during reordering stage, should not happen but proceeding");
-      continue;
-    }
-
-    // check if found point is further away than the start point
-    closest_point = cloud[k_indices[0]];
-    start_point = cloud[sequenced_indices[0]];
-    Eigen::Vector3d diff = (start_point.getArray3fMap() - closest_point.getArray3fMap()).cast<double>();
-    if(diff.norm() < std::sqrt(k_sqr_distances[0]))
-    {
-      // reversing will allow adding point from the other end
-      std::reverse(sequenced_indices.begin(),sequenced_indices.end());
-      std::reverse(sequenced_points.begin(),sequenced_points.end());
-    }
-
-    // set next search point variables
-    search_point_idx = k_indices[0];
-    search_point = closest_point;
-
-    // add to visited
-    sequenced_indices.push_back(k_indices[0]);
-    sequenced_points.push_back(closest_point);
-  }
-
-  // inserting unsequenced points
-  if(sequenced_indices.size() != max_iters)
-  {
-    std::string err_msg = boost::str(
-        boost::format("Not all points were sequenced in the first attempt, only got %lu out of %lu") %
-        sequenced_indices.size() % max_iters);
-    LOG4CXX_DEBUG(logger_,err_msg)
-    //return Result(false,err_msg);
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr sequenced_points_clone = sequenced_points.makeShared();
-    for(std::size_t idx : unsequenced_indices)
-    {
-      const int k_points = 2;
-      std::vector<int> k_indices(k_points);
-      std::vector<float> k_sqr_distances(k_points);
-      search_point = cloud[idx];
-      sequencing_kdtree.setInputCloud(sequenced_points_clone);
-      sequencing_kdtree.setSortedResults(true);
-      //int points_found = sequencing_kdtree.nearestKSearch(search_point,k_points, k_indices, k_sqr_distances);
-      int points_found = sequencing_kdtree.radiusSearch(search_point,cfg.search_radius,
-                                                        k_indices, k_sqr_distances, k_points);
-      if(points_found == 1)
-      {
-        std::size_t insert_loc = k_indices[0] >= sequenced_points_clone->size() ? sequenced_points_clone->size()
-            : (k_indices[0] +1) ;
-        sequenced_points_clone->insert(sequenced_points_clone->begin() + insert_loc ,search_point);
-      }
-      else if (points_found > 1)
-      {
-        Eigen::Vector3d v1 = (search_point.getVector3fMap() -
-            sequenced_points_clone->at(k_indices[0]).getVector3fMap()).cast<double>();
-        Eigen::Vector3d v2 = (sequenced_points_clone->at(k_indices[1]).getVector3fMap() -
-            sequenced_points_clone->at(k_indices[0]).getVector3fMap()).cast<double>();
-
-        double angle = std::acos((v1.dot(v2))/(v1.norm() * v2.norm()));
-        std::size_t insert_loc = angle > M_PI_2 ? k_indices[0] + 1 : k_indices[0] ;
-        insert_loc = insert_loc >= sequenced_points_clone->size() ? sequenced_points_clone->size() :
-            insert_loc ;
-        sequenced_points_clone->insert(sequenced_points_clone->begin() + insert_loc ,search_point);
-      }
-      else if (points_found <= 0)
-      {
-        std::string err_msg = boost::str(
-            boost::format("Point with index %i has no neighbors and will be excluded") % idx);
-        LOG4CXX_WARN(logger_,err_msg)
-        continue;
-      }
-
-      sequenced_points.clear();
-      pcl::copyPointCloud(*sequenced_points_clone, sequenced_points);
-    }
-  }
-
-  LOG4CXX_DEBUG(logger_,"Sequenced " << sequenced_points.size() << " points from "<< cloud.size());
-
-  // splitting
-  std::size_t start_idx = 0;
-  std::size_t end_idx;
-  for(std::size_t i = 0; i < sequenced_points.size(); i++)
-  {
-    end_idx = i;
-    if( i < sequenced_points.size() - 1)
-    {
-      const PointXYZ& p_current = sequenced_points[i];
-      const PointXYZ& p_next = sequenced_points[i+1];
-      Eigen::Vector3d diff = (p_next.getArray3fMap() - p_current.getArray3fMap()).cast<double>();
-      if((diff.norm() < cfg.search_radius))
-      {
-        continue;
-      }
-    }
-
-    if(end_idx == start_idx )
-    {
-      // single point, discard
-      start_idx = i+1;
-      continue;
-    }
-
-    // save segment
-    PointCloud<PointXYZ>::Ptr segment_points = boost::make_shared<PointCloud<PointXYZ>>();
-    for(std::size_t p_idx = start_idx ; p_idx <= end_idx; p_idx++)
-    {
-      auto& p_current = sequenced_points[p_idx];
-      if(p_idx > start_idx)
-      {
-        auto& p_prev = segment_points->back();
-        Eigen::Vector3d diff = (p_current.getArray3fMap() - p_prev.getArray3fMap()).cast<double>();
-        if(diff.norm() < MIN_POINT_DIST)
-        {
-          // too close do not add
-          continue;
-        }
-      }
-      segment_points->push_back(p_current);
-    }
-
-    LOG4CXX_DEBUG(logger_,"Creating sequence [" << start_idx << ",  "<< end_idx<<"] with "
-                  << segment_points->size()<<" points");
-    if(segment_points->size() <=1)
-    {
-      LOG4CXX_DEBUG(logger_,"Ignoring segment of 1 point");
-      continue;
-    }
-    sequenced_points_vec.push_back(segment_points);
-    start_idx = i+1;
-  }
-
-  LOG4CXX_DEBUG(logger_,"Computed " << sequenced_points_vec.size() <<" sequences");
 
   return true;
 }

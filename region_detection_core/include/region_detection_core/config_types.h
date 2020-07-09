@@ -95,6 +95,7 @@ namespace region_detection_core
 
     struct NormalEstimationCfg
     {
+      double downsampling_radius = 0.01;
       double search_radius = 0.02;
       double kdtree_epsilon = 1e-5;
       std::array<double,3> viewpoint_xyz = {0.0, 0.0, 100.0};
