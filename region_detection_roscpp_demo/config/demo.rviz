@@ -8,6 +8,7 @@ Panels:
         - /Status1
         - /PointCloud21
         - /MarkerArray1
+        - /PointCloud22
       Splitter Ratio: 0.5
     Tree Height: 728
   - Class: rviz/Selection
@@ -93,6 +94,36 @@ Visualization Manager:
         closed_regions_lines1: true
       Queue Size: 100
       Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: PointCloud2
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 5
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /cropped_clouds
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -121,7 +152,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 0.9303150773048401
+      Distance: 1.0543164014816284
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -136,10 +167,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.8803982734680176
+      Pitch: 0.9053980708122253
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.9935784339904785
+      Yaw: 5.1435723304748535
     Saved: ~
 Window Geometry:
   Displays:

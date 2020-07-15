@@ -19,6 +19,7 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs highgui)
 find_package(PCL REQUIRED COMPONENTS common filters surface segmentation)
 find_package(Eigen REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(console_bridge REQUIRED)
 
 ## Logging library
 if( Log4cxx_DIR )
@@ -71,6 +72,7 @@ target_link_libraries(adaptive_threshold_test
 # build library
 add_library(${PROJECT_NAME} SHARED
  src/region_detector.cpp
+ src/region_crop.cpp
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC
   ${OpenCV_LIBS}
