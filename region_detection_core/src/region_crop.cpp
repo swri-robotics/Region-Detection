@@ -319,7 +319,7 @@ void RegionCrop<PointT>::setInput(const typename pcl::PointCloud<PointT>::ConstP
 
 template<typename PointT>
 std::vector<int> region_detection_core::RegionCrop<PointT>::filter(
-    bool inverse)
+    bool reverse)
 {
   using namespace pcl;
   if(!input_)
@@ -362,11 +362,12 @@ std::vector<int> region_detection_core::RegionCrop<PointT>::filter(
   extract_polygon.segment(inlier_indices);
 
   std::vector<int> indices_vec = inlier_indices.indices;
-  if(inverse)
+  if(reverse)
   {
     std::vector<int> all_indices_vec, diff;
-    all_indices_vec.resize(closed_region_.size());
+    all_indices_vec.resize(input_->size());
     std::iota(all_indices_vec.begin(),all_indices_vec.end(),0);
+    std::sort(indices_vec.begin(), indices_vec.end());
     std::set_difference(all_indices_vec.begin(), all_indices_vec.end(), indices_vec.begin(), indices_vec.end(),
                         std::inserter(diff, diff.begin()));
     indices_vec = diff;

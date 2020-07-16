@@ -71,7 +71,7 @@ public:
   void setConfig(const RegionCropConfig& config);
   void setRegion(const std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> >& closed_region);
   void setInput(const typename pcl::PointCloud<PointT>::ConstPtr &cloud);
-  std::vector<int> filter(bool inverse = false);
+  std::vector<int> filter(bool reverse = false);
 
 private:
   std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > closed_region_;
