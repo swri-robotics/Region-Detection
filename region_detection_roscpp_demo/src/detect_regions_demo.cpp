@@ -58,6 +58,7 @@ typedef std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3
 static const std::string REGIONS_MARKERS_TOPIC = "regions_results";
 static const std::string INPUT_CLOUD_TOPIC = "regions_cloud_input";
 static const std::string CROPPED_CLOUDS_TOPIC = "cropped_clouds";
+static const std::string CROPPED_CLOUDS_REVERSE_TOPIC = "cropped_clouds_reversed";
 static const std::string REFERENCE_FRAME_ID = "results_frame";
 
 static geometry_msgs::Pose pose3DtoPoseMsg(const std::array<float, 6>& p)
@@ -454,8 +455,9 @@ int main(int argc, char** argv)
   }
 
   // cropping
-  pcl::PointCloud<pcl::PointXYZ> cropped_clouds;
+  pcl::PointCloud<pcl::PointXYZ> cropped_clouds, cropped_cloud_reverse;
   cropped_clouds.header.frame_id = REFERENCE_FRAME_ID;
+  cropped_cloud_reverse.header.frame_id = REFERENCE_FRAME_ID;
   RegionCrop<pcl::PointXYZ> crop;
   for(std::size_t i = 0; i < data_vec.size(); i++)
   {
@@ -472,21 +474,27 @@ int main(int argc, char** argv)
       crop.setRegion(results.closed_regions_poses[j]);
       std::vector<int> indices = crop.filter();
 
-      if(indices.empty())
+      if(!indices.empty())
       {
-        continue;
+        pcl::copyPointCloud(*temp_cloud, indices, *cropped_cloud);
+        cropped_clouds += (*cropped_cloud);
       }
 
-      pcl::copyPointCloud(*temp_cloud, indices, *cropped_cloud);
-      cropped_clouds += (*cropped_cloud);
+      cropped_cloud->clear();
+      indices = crop.filter(true);
+      if(!indices.empty())
+      {
+        pcl::copyPointCloud(*temp_cloud, indices, *cropped_cloud);
+        cropped_cloud_reverse += (*cropped_cloud);
+      }
     }
   }
-
 
   // creating publishers
   ros::Publisher results_markers_pub = nh.advertise<visualization_msgs::MarkerArray>(REGIONS_MARKERS_TOPIC,1);
   ros::Publisher input_cloud_pub = nh.advertise<pcl::PointCloud<PointType>>(INPUT_CLOUD_TOPIC,1);
   ros::Publisher cropped_cloud_pub = nh.advertise<pcl::PointCloud<PointType>>(CROPPED_CLOUDS_TOPIC,1);
+  ros::Publisher cropped_cloud_reversed_pub = nh.advertise<pcl::PointCloud<PointType>>(CROPPED_CLOUDS_REVERSE_TOPIC,1);
 
   // create markers to publish
   visualization_msgs::MarkerArray results_markers;
@@ -534,6 +542,7 @@ int main(int argc, char** argv)
     results_markers_pub.publish(results_markers);
     input_cloud_pub.publish(input_cloud);
     cropped_cloud_pub.publish(cropped_clouds);
+    cropped_cloud_reversed_pub.publish(cropped_cloud_reverse);
     loop_pause.sleep();
   }
 

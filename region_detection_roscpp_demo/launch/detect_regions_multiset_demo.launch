@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="data_dir" default="$(env HOME)/region_detection_data/split_images/amoeba"/>
+  <arg name="data_dir" default="$(env HOME)/region_detection_data/split_images/square"/>
   <node name="detect_regions_demo" pkg="region_detection_roscpp_demo" type="detect_regions_demo" output="screen">
   	<rosparam command="load" ns="config_opencv" file="$(find region_detection_roscpp_demo)/config/config2d_split_imgs.yaml"/>
   	<rosparam command="load" ns="config_pcl2d" file="$(find region_detection_roscpp_demo)/config/config_pcl2d.yaml"/>
