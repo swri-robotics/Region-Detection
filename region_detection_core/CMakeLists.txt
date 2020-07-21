@@ -17,7 +17,7 @@ endif()
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs highgui)
 find_package(PCL REQUIRED COMPONENTS common filters surface segmentation)
-find_package(Eigen REQUIRED)
+find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(console_bridge REQUIRED)
 
