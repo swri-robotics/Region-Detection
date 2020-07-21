@@ -42,6 +42,7 @@
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
+#include <pcl/PCLPointCloud2.h>
 
 #include <Eigen/Geometry>
 #include <Eigen/StdVector>
