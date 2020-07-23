@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.5.0)
 project(region_detection_core VERSION 0.0.0 LANGUAGES CXX)
 
 # Default to C++14
@@ -17,9 +17,10 @@ endif()
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs highgui)
 find_package(PCL REQUIRED COMPONENTS common filters surface segmentation)
-find_package(Eigen REQUIRED)
+find_package(Eigen3 REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(console_bridge REQUIRED)
+
 
 ## Logging library
 if( Log4cxx_DIR )
@@ -77,7 +78,7 @@ add_library(${PROJECT_NAME} SHARED
 target_link_libraries(${PROJECT_NAME} PUBLIC
   ${OpenCV_LIBS}
   ${Boost_LIBRARIES}
-  ${Eigen_LIBRARIES}
+  ${Eigen3_LIBRARIES}
   ${PCL_LIBRARIES}
   ${Log4cxx_LIBRARY}
   ${yaml-cpp_LIBRARIES}
@@ -89,7 +90,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC
   ${OPENCV_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
-  ${Eigen_INCLUDE_DIRS}
+  ${Eigen3_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
   ${Log4cxx_INCLUDE_DIRS}
   ${yaml-cpp_INCLUDE_DIRS}
@@ -110,8 +111,10 @@ endif()
 #############
 ## Install ##
 #############    
-install(DIRECTORY include/
+install(DIRECTORY include/${PROJECT_NAME}
   DESTINATION include
+  FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
+  PATTERN ".svn" EXCLUDE
 )
 
 install(TARGETS threshold_grayscale_test threshold_in_range_test adaptive_threshold_test 
