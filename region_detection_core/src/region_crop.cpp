@@ -53,9 +53,10 @@
 
 static const double EPSILON = 1e-8;
 
+typedef std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > EigenPose3dVector_HIDDEN;
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromNormals(std::vector<Eigen::Isometry3d,
-                                                           Eigen::aligned_allocator<Eigen::Isometry3d> > region_3d)
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromNormals(EigenPose3dVector_HIDDEN region_3d)
 {
   using namespace pcl;
   using namespace Eigen;
@@ -110,8 +111,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromNormals(std::vector<Eig
   return planar_hull;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromPlane(const std::vector<Eigen::Isometry3d,
-                                                           Eigen::aligned_allocator<Eigen::Isometry3d> >& region_3d)
+pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromPlane(const EigenPose3dVector_HIDDEN& region_3d)
 {
   using namespace pcl;
   using namespace Eigen;
@@ -161,8 +161,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromPlane(const std::vector
   return planar_hull;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromZVector(const std::vector<Eigen::Isometry3d,
-                                                           Eigen::aligned_allocator<Eigen::Isometry3d> >& region_3d)
+pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromZVector(const EigenPose3dVector_HIDDEN& region_3d)
 {
   using namespace pcl;
   using namespace Eigen;
@@ -206,8 +205,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromZVector(const std::vect
   return planar_hull;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromUserVector(const std::vector<Eigen::Isometry3d,
-                                                           Eigen::aligned_allocator<Eigen::Isometry3d> >& region_3d,
+pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromUserVector(const EigenPose3dVector_HIDDEN& region_3d,
                                                            const Eigen::Vector3d& user_vec)
 {
   using namespace pcl;
@@ -270,7 +268,7 @@ RegionCrop<PointT>::~RegionCrop()
 
 template<typename PointT>
 inline void RegionCrop<PointT>::setRegion(
-    const std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > &closed_region)
+    const EigenPose3dVector_HIDDEN &closed_region)
 {
   using namespace Eigen;
   Vector3d p0, pf;

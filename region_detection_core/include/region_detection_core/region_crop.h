@@ -53,6 +53,7 @@ enum class DirectionEstMethods: unsigned int
 
 struct RegionCropConfig
 {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   double plane_dist_threshold = 0.1;
   std::pair<double, double> heigth_limits = std::make_pair(-0.1, 0.1);
   DirectionEstMethods dir_estimation_method = DirectionEstMethods::PLANE_NORMAL;
@@ -64,17 +65,19 @@ template <typename PointT>
 class RegionCrop
 {
 public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  typedef std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > EigenPose3dVector;
 
   RegionCrop();
   virtual ~RegionCrop();
 
   void setConfig(const RegionCropConfig& config);
-  void setRegion(const std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> >& closed_region);
+  void setRegion(const EigenPose3dVector& closed_region);
   void setInput(const typename pcl::PointCloud<PointT>::ConstPtr &cloud);
   std::vector<int> filter(bool reverse = false);
 
 private:
-  std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > closed_region_;
+  EigenPose3dVector closed_region_;
   RegionCropConfig config_;
   typename pcl::PointCloud<PointT>::ConstPtr input_;
 

@@ -526,7 +526,7 @@ RegionDetector::Result RegionDetector::compute2dContours( cv::Mat input,
   return Result(true);
 }
 
-bool RegionDetector::compute(const std::vector<DataBundle> &input,
+bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
                                                       RegionDetector::RegionResults& regions)
 {
   using namespace pcl;

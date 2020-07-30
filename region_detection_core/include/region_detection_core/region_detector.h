@@ -96,16 +96,23 @@ struct RegionDetectionConfig
 class RegionDetector
 {
 public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
   struct DataBundle
-  {
+  {    
     cv::Mat image;
     pcl::PCLPointCloud2 cloud_blob;
     Eigen::Isometry3d transform;
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   };
 
+  typedef std::vector<DataBundle,Eigen::aligned_allocator<DataBundle>> DataBundleVec;
+
   typedef std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > EigenPose3dVector;
+  //typedef std::vector<Eigen::Isometry3d> EigenPose3dVector;
   struct RegionResults
   {
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     std::vector<EigenPose3dVector> closed_regions_poses;
     std::vector<EigenPose3dVector> open_regions_poses;
 
@@ -122,7 +129,7 @@ public:
   bool configure(const std::string& yaml_str);
   const RegionDetectionConfig& getConfig();
 
-  bool compute(const std::vector<DataBundle>& input,RegionDetector::RegionResults& regions);
+  bool compute(const DataBundleVec& input,RegionDetector::RegionResults& regions);
 
   static log4cxx::LoggerPtr createDefaultInfoLogger(const std::string& logger_name);
   static log4cxx::LoggerPtr createDefaultDebugLogger(const std::string& logger_name);
