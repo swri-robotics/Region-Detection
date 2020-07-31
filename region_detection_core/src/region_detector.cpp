@@ -51,6 +51,7 @@
 #include <pcl/conversions.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/surface/concave_hull.h>
+#include <pcl/filters/extract_indices.h>
 
 #include "region_detection_core/region_detector.h"
 
@@ -118,6 +119,30 @@ std::vector<cv::Point> convertCloudTo2DContour(const pcl::PointCloud<pcl::PointX
     contour_2d.push_back(p_2d);
   }
   return contour_2d;
+}
+
+template <class PointT>
+void removeInfinite(pcl::PointCloud<PointT>& cloud)
+{
+  using namespace pcl;
+
+  PointIndices::Ptr inliers = boost::make_shared<PointIndices>();
+  std::vector<int> finite_indices;
+  for(std::size_t i = 0; i < cloud.size(); i++)
+  {
+    if(isFinite(cloud[i]))
+    {
+      inliers->indices.push_back(i);
+    }
+  }
+  pcl::ExtractIndices<PointT> extract;
+  PointCloud<PointT> finite_cloud;
+  auto temp_cloud = cloud.makeShared();
+  extract.setInputCloud(temp_cloud);
+  extract.setIndices(inliers);
+  extract.setNegative(false);
+  extract.filter (finite_cloud);
+  copyPointCloud(finite_cloud,cloud);
 }
 
 void dowsampleCloud(pcl::PointCloud<pcl::PointXYZ>& cloud, double leafsize = 1.0)
@@ -679,7 +704,12 @@ bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
       // removing nans
       std::vector<int> nan_indices = {};
       LOG4CXX_DEBUG(logger_,"NaN Removal");
+      contour->is_dense = false;
       pcl::removeNaNFromPointCloud(*contour, *contour,nan_indices);
+
+      // removing infinte
+      LOG4CXX_DEBUG(logger_,"Infinite Removal");
+      removeInfinite(*contour);
 
       // statistical outlier removal
       if(cfg_->pcl_cfg.stat_removal.enable)
@@ -719,6 +749,10 @@ bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
     // adding point normals
     for(auto& cn : contours_point_normals)
     {
+      std::vector<int> removed_indices;
+      cn->is_dense = false;
+      pcl::removeNaNNormalsFromPointCloud(*cn,*cn, removed_indices);
+      removeInfinite(*cn);
       (*normals) += *cn;
     }
   }
