@@ -86,6 +86,7 @@ struct RegionDetectionConfig
     double max_merge_dist = 0.01;           /** @brief in meters */
     double closed_curve_max_dist = 0.01;    /** @brief in meters */
     double simplification_min_dist = 0.02;  /** @brief in meters */
+    double split_dist = 0.1;                /** @brief will split segments when the distance between consecutive points exceeds this value, in meters */
     int min_num_points = 10;                /** @brief segments must have at least this many points*/
 
     bool debug_mode_enable = false;         /** @brief not used at the moment */
@@ -109,7 +110,6 @@ public:
   typedef std::vector<DataBundle,Eigen::aligned_allocator<DataBundle>> DataBundleVec;
 
   typedef std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > EigenPose3dVector;
-  //typedef std::vector<Eigen::Isometry3d> EigenPose3dVector;
   struct RegionResults
   {
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW

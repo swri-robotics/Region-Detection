@@ -342,10 +342,12 @@ void RegionDetector::findClosedCurves(const std::vector<pcl::PointCloud<pcl::Poi
     if(diff.norm() < max_dist)
     {
       // copying first point to end of cloud to close the curve
-      curve_points->push_back(curve_points->front());
+      // TODO: Evaluate if line below line should be restored
+      //curve_points->push_back(curve_points->front());
 
       // saving
       closed_curves_vec.push_back(curve_points);
+
       LOG4CXX_DEBUG(logger_,"Found closed curve with "<< curve_points->size() << " points");
     }
     else
@@ -695,6 +697,7 @@ bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
     res = extractContoursFromCloud(contours_indices,input_cloud ,contours_points);
     if(!res)
     {
+      LOG4CXX_ERROR(logger_,"Failed to extract 3d data");
       return false;
     }
 
@@ -707,7 +710,7 @@ bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
       contour->is_dense = false;
       pcl::removeNaNFromPointCloud(*contour, *contour,nan_indices);
 
-      // removing infinte
+      // removing infinite
       LOG4CXX_DEBUG(logger_,"Infinite Removal");
       removeInfinite(*contour);
 
@@ -721,6 +724,13 @@ bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
         sor.setStddevMulThresh (cfg_->pcl_cfg.stat_removal.stddev);
         sor.filter (*contour);
       }
+
+/*    TODO:Disrupts the order of the points
+      if(cfg_->pcl_cfg.downsample_leaf_size > 0)
+      {
+        dowsampleCloud(*contour,cfg_->pcl_cfg.downsample_leaf_size);
+        *contour = sequence(contour->makeShared(),1e-5);
+      }*/
     }
 
     LOG4CXX_DEBUG(logger_,"Computing normals");
@@ -731,8 +741,43 @@ bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
       return false;
     }
 
-    // adding found curves
-    if(!closed_indices_curves_vec.empty())
+    // adding found closed contours
+    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> current_closed_contour_points;
+    current_closed_contour_points.assign(contours_points.begin(),
+            std::next(contours_points.begin(),closed_indices_curves_vec.size()));
+    for(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud : current_closed_contour_points)
+    {
+    	std::vector <pcl::PointCloud<pcl::PointXYZ>::Ptr > split_clouds = split(*cloud, cfg_->pcl_cfg.split_dist);
+    	if(split_clouds.size() == 1)
+    	{
+    	  // no split occurred so keeping as closed curve and copying first point to end in order to close the curve
+    	  cloud->push_back(cloud->front());
+    	  closed_contours_points.push_back(cloud);
+    	}
+    	else if(split_clouds.size() > 1)
+    	{
+    	  // got splitted so inserting in open contours vector
+    	  open_contours_points.insert(open_contours_points.end(),split_clouds.begin(), split_clouds.end());
+    	}
+    	else if(split_clouds.empty())
+    	{
+    	  LOG4CXX_ERROR(logger_,"Splitting failed to return at least one curve");
+    	  return false;
+    	}
+    }
+
+    // adding open contours
+    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> current_open_contour_points;
+    current_open_contour_points.assign(std::next(contours_points.begin(),closed_indices_curves_vec.size()),
+                                         contours_points.end());
+    for(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud : current_open_contour_points)
+    {
+      std::vector <pcl::PointCloud<pcl::PointXYZ>::Ptr > split_clouds = split(*cloud, cfg_->pcl_cfg.split_dist);
+      open_contours_points.insert(open_contours_points.end(),split_clouds.begin(), split_clouds.end());
+    }
+
+/*  TODO: Remove
+ *  if(!closed_indices_curves_vec.empty())
     {
       closed_contours_points.insert(closed_contours_points.end(),
                                     contours_points.begin(),
@@ -744,7 +789,7 @@ bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
       open_contours_points.insert(open_contours_points.end(),
                                     std::next(contours_points.begin(),closed_indices_curves_vec.size()),
                                     contours_points.end());
-    }
+    }*/
 
     // adding point normals
     for(auto& cn : contours_point_normals)
@@ -837,6 +882,13 @@ RegionDetector::Result RegionDetector::extractContoursFromCloud(
     return Result(false,err_msg);
   }
 
+  if(contour_indices.empty())
+  {
+    std::string err_msg = "Input contour indices vector is empty";
+    LOG4CXX_ERROR(logger_,err_msg)
+    return Result(false,err_msg);
+  }
+
   pcl::PointCloud<pcl::PointXYZ> temp_contour_points;
   for(const std::vector<cv::Point>& indices : contour_indices)
   {
@@ -862,7 +914,7 @@ RegionDetector::Result RegionDetector::extractContoursFromCloud(
     contours_points.push_back(boost::make_shared<pcl::PointCloud<pcl::PointXYZ>>(temp_contour_points));
   }
 
-  return Result(!contours_points.empty(),"");
+  return Result(!contours_points.empty(),"Empty cloud after extraction of 3D points");
 }
 
 RegionDetector::Result RegionDetector::combineIntoClosedRegions(
@@ -933,6 +985,9 @@ RegionDetector::Result RegionDetector::combineIntoClosedRegions(
       }
 
     }while(merged_curves);
+
+    // TODO: Remove sequencing again
+    //*curve_points = sequence(curve_points->makeShared(),1e-5);
 
     // check if closed
     Eigen::Vector3d diff = (curve_points->front().getArray3fMap() - curve_points->back().getArray3fMap()).cast<double>();
@@ -1023,6 +1078,7 @@ RegionDetector::Result RegionDetector::mergeCurves(pcl::PointCloud<pcl::PointXYZ
       break;
   }
 
+  // TODO: remove
   //merged = sequence(c1.makeShared());
   merged = c1;
   return true;
