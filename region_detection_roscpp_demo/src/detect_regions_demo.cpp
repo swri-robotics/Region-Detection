@@ -300,6 +300,7 @@ RegionDetectionConfig::PCLCfg loadPCLParams()
      ph.getParam("max_merge_dist",cfg.max_merge_dist ) &&
      ph.getParam("closed_curve_max_dist",cfg.closed_curve_max_dist ) &&
      ph.getParam("simplification_min_dist",cfg.simplification_min_dist ) &&
+	 ph.getParam("split_dist",cfg.split_dist ) &&
      ph.getParam("min_num_points",cfg.min_num_points );
   if(!success)
   {
@@ -335,13 +336,13 @@ RegionDetectionConfig::PCLCfg loadPCLParams()
   return cfg;
 }
 
-std::vector<RegionDetector::DataBundle> loadData()
+RegionDetector::DataBundleVec loadData()
 {
   using namespace XmlRpc;
   using namespace Eigen;
 
   namespace fs = boost::filesystem;
-  std::vector<RegionDetector::DataBundle> data_vec;
+  RegionDetector::DataBundleVec data_vec;
   ros::NodeHandle ph("~");
   bool success;
   std::string param_ns = "data";
@@ -444,7 +445,7 @@ int main(int argc, char** argv)
    *    cloud_file: dir2/cloud.pcd
    *    transform: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] # [px, py, pz, rx, ry, rz]
    */
-  std::vector<RegionDetector::DataBundle> data_vec = loadData();
+  RegionDetector::DataBundleVec data_vec = loadData();
 
   // computing regions now
   RegionDetector rd(cfg,RegionDetector::createDefaultDebugLogger("RD_Debug"));

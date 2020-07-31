@@ -2,6 +2,7 @@ debug_mode_enable: false
 max_merge_dist: 0.01
 closed_curve_max_dist: 0.01
 simplification_min_dist: 0.01
+split_dist: 0.1
 min_num_points: 10
 stat_removal:
   enable: true
