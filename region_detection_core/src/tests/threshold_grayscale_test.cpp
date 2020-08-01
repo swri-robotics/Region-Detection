@@ -32,6 +32,8 @@ int dilation_size = 1;
 int const max_elem = 2;
 int const max_kernel_size = 21;
 
+int thinning_enabled = 1;
+
 struct CountourConfig
 {
   int enable = 1;
@@ -169,6 +171,9 @@ static void updateImage( int, void* )
   }
 
 
+  // thining
+  //thinningGuoHall(dst);
+
 
   // canny edge detection
   if(canny_cfg.enable == 1)
@@ -186,7 +191,10 @@ static void updateImage( int, void* )
   }
 
   // thining
-  thinningGuoHall(dst);
+  if(thinning_enabled == 1)
+  {
+    thinningGuoHall(dst);
+  }
 
   // contour
   if(contour_cfg.enable == 1)
@@ -289,6 +297,11 @@ int main( int argc, char** argv )
           updateImage );
   createTrackbar( "Canny Aperture Size 2n + 1", window_name,
           &canny_cfg.aperture_size, canny_cfg.MAX_APERTURE_SIZE,
+          updateImage );
+
+  //! [Thinning trackbar]
+  createTrackbar( "Thinning Enable", window_name,
+          &thinning_enabled,1,
           updateImage );
 
   //! [Dilation trackbars]
