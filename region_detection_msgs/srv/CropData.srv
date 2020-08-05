@@ -1,0 +1,12 @@
+# inputs
+
+geometry_msgs/PoseArray[] crop_regions 
+geometry_msgs/PoseArray[] input_data
+
+---
+# outputs
+
+PoseSet[] cropped_data
+bool succeeded
+string err_msg
+
