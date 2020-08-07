@@ -60,6 +60,8 @@ static const std::string REGION_ID_PREFIX = "region_";
 static const std::string SHOW_SELECTABLE_REGIONS_SERVICE = "show_selectable_regions";
 static const std::string GET_SELECTED_REGIONS_SERVICE = "get_selected_regions";
 
+static const std::string DEFAULT_FRAME_ID = "world";
+
 namespace selection_colors_rgba
 {
   using RGBA = std::tuple<double, double, double, double>;
@@ -130,7 +132,7 @@ private:
     }
 
     visualization_msgs::msg::InteractiveMarker int_marker;
-    if(!interactive_marker_server_.get(feedback->client_id, int_marker))
+    if(!interactive_marker_server_.get(feedback->marker_name, int_marker))
     {
       RCLCPP_WARN(node_->get_logger(),"The marker with id %s was not found", feedback->client_id.c_str());
       return;
@@ -160,7 +162,7 @@ private:
     marker.scale.x = marker.scale.y = marker.scale.z = 1;
     marker.type = marker.TRIANGLE_LIST;
     marker.action = selected ? marker.ADD : marker.DELETE; // marking selection flag
-    marker.header.frame_id = regions.front().header.frame_id;
+    marker.header.frame_id = regions.front().header.frame_id.empty() ? DEFAULT_FRAME_ID : regions.front().header.frame_id;
 
     std::tie(marker.color.r, marker.color.g, marker.color.b, marker.color.a) = selected ? selection_colors_rgba::SELECTED :
         selection_colors_rgba::UNSELECTED;
@@ -172,6 +174,8 @@ private:
     geometry_msgs::msg::Point p1, p2, p3, p4;
     for(std::size_t i = 0; i < regions.size(); i++)
     {
+
+      RCLCPP_INFO(node_->get_logger(),"Adding region %i with height %f", i , region_height_);
       marker.points.clear();
       geometry_msgs::msg::PoseArray region = regions[i];
       for(std::size_t j = 1; j < region.poses.size(); j++)
@@ -183,20 +187,26 @@ private:
 
         // computing points
         Vector3d eig_point;
-        eig_point = pose1*(region_height_ * Vector3d::UnitZ());
+        eig_point = pose1*(0.5 * region_height_ * Vector3d::UnitZ());
         p1 = tf2::toMsg(eig_point);
 
-        eig_point = pose2*(region_height_ * Vector3d::UnitZ());
+        eig_point = pose2*(0.5 * region_height_ * Vector3d::UnitZ());
         p2 = tf2::toMsg(eig_point);
 
-        eig_point = pose2*(-region_height_ * Vector3d::UnitZ());
+        eig_point = pose2*(-0.5 * region_height_ * Vector3d::UnitZ());
         p3 = tf2::toMsg(eig_point);
 
-        eig_point = pose1*(-region_height_ * Vector3d::UnitZ());
+        eig_point = pose1*(-0.5 * region_height_ * Vector3d::UnitZ());
         p4 = tf2::toMsg(eig_point);
 
         // creating triangles
         std::vector<geometry_msgs::msg::Point> triangle_points = {p1, p2, p3, p3, p4, p1};
+        std::for_each(triangle_points.begin(), triangle_points.end(),[&marker](
+            const geometry_msgs::msg::Point& p){
+          marker.points.push_back(p);
+        });
+
+        triangle_points = {p1, p4, p3, p3, p2, p1};
         std::for_each(triangle_points.begin(), triangle_points.end(),[&marker](
             const geometry_msgs::msg::Point& p){
           marker.points.push_back(p);
