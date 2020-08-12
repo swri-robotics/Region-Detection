@@ -52,17 +52,52 @@
 namespace region_detection_core
 {
 
+enum class Methods2D: int
+{
+  GRAYSCALE = 0,
+  INVERT,
+  THRESHOLD,
+  DILATION,
+  EROSION,
+  CANNY,
+  THINNING,
+  RANGE,
+  HSV,
+  EQUALIZE_HIST,
+  EQUALIZE_HIST_YUV,
+  CLAHE,
+};
+
+static const std::map<std::string, Methods2D> METHOD_CODES_MAPPINGS = {
+    {"GRAYSCALE",Methods2D::GRAYSCALE},
+    {"INVERT",Methods2D::INVERT},
+    {"THRESHOLD",Methods2D::THRESHOLD},
+    {"DILATION",Methods2D::DILATION},
+    {"EROSION",Methods2D::EROSION},
+    {"CANNY",Methods2D::CANNY},
+    {"THINNING",Methods2D::THINNING},
+    {"RANGE",Methods2D::RANGE},
+    {"HSV",Methods2D::HSV},
+    {"EQUALIZE_HIST",Methods2D::EQUALIZE_HIST},
+    {"EQUALIZE_HIST_YUV",Methods2D::EQUALIZE_HIST_YUV},
+    {"CLAHE",Methods2D::CLAHE}};
+
 struct RegionDetectionConfig
 {
   // OpenCV configurations
   struct OpenCVCfg
   {
-    // opencv
-    bool invert_image = true;
+
+    std::vector<std::string> methods = {};
+
     config_2d::ThresholdCfg threshold;
-    config_2d::DilationCfg dilation;
+    config_2d::MorphologicalCfg dilation;
+    config_2d::MorphologicalCfg erosion;
     config_2d::CannyCfg canny;
     config_2d::CountourCfg contour;
+    config_2d::RangeCfg range;
+    config_2d::HSVCfg hsv;
+    config_2d::CLAHECfg clahe;
 
     bool debug_mode_enable = false;
     std::string debug_window_name = "DEBUG_REGION_DETECTION";
@@ -92,7 +127,13 @@ struct RegionDetectionConfig
     bool debug_mode_enable = false;         /** @brief not used at the moment */
   }  pcl_cfg;
 
+
+  static RegionDetectionConfig loadFromFile(const std::string& yaml_file);
+  static RegionDetectionConfig load(const std::string& yaml_str);
+
 };
+
+
 
 class RegionDetector
 {
@@ -127,8 +168,34 @@ public:
   log4cxx::LoggerPtr getLogger();
   bool configure(const RegionDetectionConfig& config);
   bool configure(const std::string& yaml_str);
+  bool configureFromFile(const std::string& yaml_file);
   const RegionDetectionConfig& getConfig();
 
+  /**
+   * @brief computes contours from images
+   * @param input             Input image
+   * @param contours_indices  Output contours in pixel coordinates
+   * @param output            Output image
+   * @return  True on success, false otherwise
+   */
+  bool compute2d(cv::Mat input, cv::Mat& output) const;
+
+  /**
+   * @brief computes contours from images and returns their indices
+   * @param input             Input image
+   * @param contours_indices  Output contours in pixel coordinates
+   * @param output            Output image
+   * @param contours_indices  The indices of the contours
+   * @return  True on success, false otherwise
+   */
+  bool compute2d(cv::Mat input, cv::Mat& output, std::vector<std::vector<cv::Point> >& contours_indices) const;
+
+  /**
+   * @brief computes contours
+   * @param input   A vector of data structures containing point clouds and images
+   * @param regions (Output) the detected regions
+   * @return True on success, false otherwise
+   */
   bool compute(const DataBundleVec& input,RegionDetector::RegionResults& regions);
 
   static log4cxx::LoggerPtr createDefaultInfoLogger(const std::string& logger_name);
@@ -136,6 +203,10 @@ public:
 
 private:
 
+  /**
+   * @class region_detection_core::RegionDetector::Result
+   * @brief Convenience class that can be evaluated as a bool and contains an error message, used internally
+   */
   struct Result
   {
     /**
@@ -171,9 +242,21 @@ private:
     std::string msg;
   };
 
+  // 2d methods
   void updateDebugWindow(const cv::Mat& im) const;
 
-  // 2d methods
+  RegionDetector::Result apply2dCanny(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dDilation(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dErosion(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dThreshold(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dInvert(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dGrayscale(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dRange(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dHSV(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dEqualizeHistYUV(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dEqualizeHist(cv::Mat input, cv::Mat& output) const;
+  RegionDetector::Result apply2dCLAHE(cv::Mat input, cv::Mat& output) const;
+
   Result compute2dContours(cv::Mat input, std::vector<std::vector<cv::Point> >& contours_indices, cv::Mat& output) const;
 
   // 3d methods

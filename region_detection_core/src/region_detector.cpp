@@ -60,6 +60,7 @@ static cv::RNG RANDOM_NUM_GEN(12345);
 static const int MIN_PIXEL_DISTANCE = 1; // used during interpolation in pixel space
 static const double MIN_POINT_DIST = 1e-8;
 
+
 log4cxx::LoggerPtr createDefaultLogger(const std::string& logger_name)
 {
   using namespace log4cxx;
@@ -226,6 +227,90 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr concaveHullSimplification(const pcl::PointCl
 namespace region_detection_core
 {
 
+RegionDetectionConfig RegionDetectionConfig::loadFromFile(const std::string& yaml_file)
+{
+  YAML::Node root = YAML::LoadFile(yaml_file);
+  std::stringstream yaml_stream;
+  yaml_stream << root;
+  return load(yaml_stream.str());
+}
+
+RegionDetectionConfig RegionDetectionConfig::load(const std::string& yaml_str)
+{
+  RegionDetectionConfig cfg;
+  {
+    YAML::Node root = YAML::Load(yaml_str);
+
+    YAML::Node opencv_node = root["opencv"];
+    RegionDetectionConfig::OpenCVCfg& opencv_cfg = cfg.opencv_cfg;
+
+    opencv_cfg.methods = opencv_node["methods"].as<std::vector<std::string>>();
+
+    opencv_cfg.threshold.type = opencv_node["threshold"]["type"].as<int>();
+    opencv_cfg.threshold.value = opencv_node["threshold"]["value"].as<int>();
+
+    opencv_cfg.canny.lower_threshold = opencv_node["canny"]["lower_threshold"].as<int>();
+    opencv_cfg.canny.upper_threshold = opencv_node["canny"]["lower_threshold"].as<int>();
+    opencv_cfg.canny.aperture_size = opencv_node["canny"]["aperture_size"].as<int>();
+
+    opencv_cfg.dilation.elem = opencv_node["dilation"]["elem"].as<int>();
+    opencv_cfg.dilation.kernel_size = opencv_node["dilation"]["kernel_size"].as<int>();
+
+    opencv_cfg.erosion.elem = opencv_node["erosion"]["elem"].as<int>();
+    opencv_cfg.erosion.kernel_size = opencv_node["erosion"]["kernel_size"].as<int>();
+
+    opencv_cfg.contour.method = opencv_node["contour"]["method"].as<int>();
+    opencv_cfg.contour.mode = opencv_node["contour"]["mode"].as<int>();
+
+    opencv_cfg.range.low = opencv_node["range"]["low"].as<int>();
+    opencv_cfg.range.high = opencv_node["range"]["high"].as<int>();
+
+    std::vector<int> h_vals = opencv_node["hsv"]["h"].as<std::vector<int>>();
+    std::vector<int> s_vals = opencv_node["hsv"]["s"].as<std::vector<int>>();
+    std::vector<int> v_vals = opencv_node["hsv"]["v"].as<std::vector<int>>();
+    std::copy(h_vals.begin(),h_vals.end(),opencv_cfg.hsv.h.begin());
+    std::copy(s_vals.begin(),s_vals.end(),opencv_cfg.hsv.s.begin());
+    std::copy(v_vals.begin(),v_vals.end(),opencv_cfg.hsv.v.begin());
+
+    opencv_cfg.debug_mode_enable = opencv_node["debug_mode_enable"].as<bool>();
+    opencv_cfg.debug_window_name = opencv_node["debug_window_name"].as<std::string>();
+    opencv_cfg.debug_wait_key = opencv_node["debug_wait_key"].as<bool>();
+
+    opencv_cfg.clahe.clip_limit = opencv_node["clahe"]["clip_limit"].as<double>();
+    std::vector<int> tile_size_vals = opencv_node["clahe"]["tile_grid_size"].as<std::vector<int>>();
+    std::copy(tile_size_vals.begin(),tile_size_vals.end(), opencv_cfg.clahe.tile_grid_size.begin());
+
+    YAML::Node pcl2d_node = root["pcl2d"];
+    RegionDetectionConfig::PCL2DCfg& pcl2d_cfg = cfg.pcl_2d_cfg;
+    pcl2d_cfg.downsampling_radius = pcl2d_node["downsampling_radius"].as<double>();
+    pcl2d_cfg.split_dist = pcl2d_node["split_dist"].as<double>();
+    pcl2d_cfg.closed_curve_max_dist = pcl2d_node["closed_curve_max_dist"].as<double>();
+    pcl2d_cfg.simplification_min_points = pcl2d_node["simplification_min_points"].as<int>();
+    pcl2d_cfg.simplification_alpha = pcl2d_node["simplification_alpha"].as<double>();
+
+
+    YAML::Node pcl_node = root["pcl"];
+    RegionDetectionConfig::PCLCfg& pcl_cfg = cfg.pcl_cfg;
+    pcl_cfg.debug_mode_enable = pcl_node["debug_mode_enable"].as<bool>();
+    pcl_cfg.max_merge_dist = pcl_node["max_merge_dist"].as<double>();
+    pcl_cfg.closed_curve_max_dist = pcl_node["closed_curve_max_dist"].as<double>();
+    pcl_cfg.simplification_min_dist = pcl_node["simplification_min_dist"].as<double>();
+    pcl_cfg.split_dist = pcl_node["split_dist"].as<double>();
+    pcl_cfg.min_num_points = pcl_node["min_num_points"].as<int>();
+
+    pcl_cfg.stat_removal.enable = pcl_node["stat_removal"]["enable"].as<bool>();
+    pcl_cfg.stat_removal.kmeans = pcl_node["stat_removal"]["kmeans"].as<int>();
+    pcl_cfg.stat_removal.stddev = pcl_node["stat_removal"]["stddev"].as<double>();
+
+    pcl_cfg.normal_est.kdtree_epsilon = pcl_node["normal_est"]["kdtree_epsilon"].as<double>();
+    pcl_cfg.normal_est.search_radius = pcl_node["normal_est"]["search_radius"].as<double>();
+    std::vector<double> viewpoint_vals = pcl_node["normal_est"]["viewpoint_xyz"].as<std::vector<double>>();
+    pcl_cfg.normal_est.downsampling_radius = pcl_node["normal_est"]["downsampling_radius"].as<double>();
+    std::copy(viewpoint_vals.begin(), viewpoint_vals.end(), pcl_cfg.normal_est.viewpoint_xyz.begin());
+  }
+  return cfg;
+}
+
 pcl::PointCloud<pcl::PointXYZ> RegionDetector::sequence(pcl::PointCloud<pcl::PointXYZ>::ConstPtr points,
                                                                 double epsilon)
 {
@@ -348,14 +433,6 @@ std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> RegionDetector::split(const pcl
       }
     }
 
-    /* TODO
-    if(end_idx == start_idx )
-    {
-      // single point, discard
-      start_idx = i+1;
-      continue;
-    }*/
-
     // save segment
     PointCloud<PointXYZ>::Ptr segment_points = boost::make_shared<PointCloud<PointXYZ>>();
     for(std::size_t p_idx = start_idx ; p_idx <= end_idx; p_idx++)
@@ -468,9 +545,14 @@ bool RegionDetector::configure(const RegionDetectionConfig &config)
   return cfg_!=nullptr;
 }
 
+bool RegionDetector::configureFromFile(const std::string& yaml_file)
+{
+  return configure(RegionDetectionConfig::loadFromFile(yaml_file));
+}
+
 bool RegionDetector::configure(const std::string &yaml_str)
 {
-  return false;
+  return configure(RegionDetectionConfig::load(yaml_str));
 }
 
 log4cxx::LoggerPtr RegionDetector::getLogger()
@@ -499,8 +581,6 @@ void RegionDetector::updateDebugWindow(const cv::Mat& im) const
   {
     // create window then
     namedWindow(wname, WINDOW_AUTOSIZE);
-    std::string msg = boost::str(boost::format("Created opencv window \"%s\"") % wname );
-    LOG4CXX_DEBUG(logger_,msg);
   }
 
   imshow( wname, im.clone() );
@@ -512,107 +592,264 @@ void RegionDetector::updateDebugWindow(const cv::Mat& im) const
   }
 }
 
+RegionDetector::Result RegionDetector::apply2dGrayscale(cv::Mat input, cv::Mat& output) const
+{
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+
+  if(input.channels() == 1)
+  {
+    LOG4CXX_WARN(logger_,"Input image is already of one channel, skipping Grayscale Conversion");
+    return true;
+  }
+
+  cv::cvtColor( input, output, cv::COLOR_BGR2GRAY, 1 );
+  LOG4CXX_DEBUG(logger_,"2D analysis: Grayscale Conversion");
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dRange(cv::Mat input, cv::Mat& output) const
+{
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+  cv::inRange(input.clone(),cv::Scalar(config.range.low),cv::Scalar(config.range.high),output);
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dHSV(cv::Mat input, cv::Mat& output) const
+{
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+
+  cv::cvtColor(input, output, cv::COLOR_BGR2HSV);
+  cv::Mat frame_threshold;
+  inRange(output, cv::Scalar(config.hsv.h[0], config.hsv.s[0], config.hsv.v[0]),
+          cv::Scalar(config.hsv.h[1], config.hsv.s[1], config.hsv.v[1]), frame_threshold);
+  output = frame_threshold;
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dEqualizeHistYUV(cv::Mat input, cv::Mat& output) const
+{
+  cv::cvtColor(input, output, CV_BGR2YUV);
+  std::vector<cv::Mat> channels;
+  cv::split(input, channels);
+  cv::equalizeHist(channels[0], channels[0]);
+  cv::merge(channels, output);
+  cv::cvtColor(output, output, CV_YUV2BGR);
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dEqualizeHist(cv::Mat input, cv::Mat& output) const
+{
+  std::vector<cv::Mat> channels;
+  cv::split(input, channels);
+  cv::equalizeHist(channels[0], channels[0]);
+  cv::merge(channels, output);
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dCLAHE(cv::Mat input, cv::Mat& output) const
+{
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+  auto clahe = cv::createCLAHE(config.clahe.clip_limit, cv::Size(config.clahe.tile_grid_size[0],
+                                                    config.clahe.tile_grid_size[1]));
+  clahe->apply(input,output);
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dInvert(cv::Mat input, cv::Mat& output) const
+{
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+  cv::Mat inverted = cv::Scalar_<uint8_t>(255) - input;
+  output = inverted.clone();
+  LOG4CXX_ERROR(logger_,"2D analysis: Inversion");
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dThreshold(cv::Mat input, cv::Mat& output) const
+{
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+  cv::threshold( input, output, config.threshold.value, config.threshold.MAX_BINARY_VALUE,
+                 config.threshold.type );
+  LOG4CXX_ERROR(logger_,"2D analysis: threshold with value of "<< config.threshold.value);
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dDilation(cv::Mat input, cv::Mat& output) const
+{
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+  bool success;
+  std::string err_msg;
+
+  // check values
+  if(config.dilation.kernel_size <= 0)
+  {
+    success = false;
+    err_msg = "invalid dilation size";
+    LOG4CXX_ERROR(logger_,err_msg)
+    return Result(success,err_msg);
+  }
+
+  // select dilation type
+  if(DILATION_TYPES.count(config.dilation.elem) == 0)
+  {
+    success = false;
+    err_msg = "invalid dilation element";
+    LOG4CXX_ERROR(logger_,err_msg)
+    return Result(success,err_msg);
+  }
+  int dilation_type = DILATION_TYPES.at(config.dilation.elem);
+  cv::Mat element = cv::getStructuringElement( dilation_type,
+                       cv::Size( 2*config.dilation.kernel_size + 1, 2*config.dilation.kernel_size+1 ),
+                       cv::Point( config.dilation.kernel_size, config.dilation.kernel_size ) );
+  cv::dilate( input, output, element );
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dErosion(cv::Mat input, cv::Mat& output) const
+{
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+  bool success;
+  std::string err_msg;
+
+  // check values
+  if(config.dilation.kernel_size <= 0)
+  {
+    success = false;
+    err_msg = "invalid dilation size";
+    LOG4CXX_ERROR(logger_,err_msg)
+    return Result(success,err_msg);
+  }
+
+  // select dilation type
+  if(DILATION_TYPES.count(config.dilation.elem) == 0)
+  {
+    success = false;
+    err_msg = "invalid dilation element";
+    LOG4CXX_ERROR(logger_,err_msg)
+    return Result(success,err_msg);
+  }
+  int dilation_type = DILATION_TYPES.at(config.dilation.elem);
+  cv::Mat element = cv::getStructuringElement( dilation_type,
+                       cv::Size( 2*config.erosion.kernel_size + 1, 2*config.erosion.kernel_size+1 ),
+                       cv::Point( config.erosion.kernel_size, config.erosion.kernel_size ) );
+  cv::erode(input, output, element );
+  return true;
+}
+
+RegionDetector::Result RegionDetector::apply2dCanny(cv::Mat input, cv::Mat& output) const
+{
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+  cv::Mat detected_edges;
+  int aperture_size = 2 * config.canny.aperture_size + 1;
+  aperture_size = aperture_size < 3  ? 3 : aperture_size;
+  cv::Canny( input, detected_edges, config.canny.lower_threshold,
+             config.canny.upper_threshold, aperture_size, true );
+  output = detected_edges.clone();
+  return true;
+}
+
 RegionDetector::Result RegionDetector::compute2dContours( cv::Mat input,
                                                            std::vector<std::vector<cv::Point> >& contours_indices,
                                                            cv::Mat& output) const
 {
+  const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
+
+  Result res = compute2d(input, output);
+  if(!res)
+  {
+    return res;
+  }
+
+  //  ======================== Contour Detection ========================
+  std::vector<cv::Vec4i> hierarchy;
+  try
+  {
+    cv::findContours(output.clone(), contours_indices, hierarchy, config.contour.mode, config.contour.method);
+  }
+  catch(cv::Exception& ex)
+  {
+    return Result(false,boost::str(boost::format("Failed finding contours with error: %s") % ex.what()));
+  }
+
+  cv::Mat drawing = cv::Mat::zeros( output.size(), CV_8UC3 );
+  LOG4CXX_INFO(logger_,"Contour analysis found "<< contours_indices.size() << " contours");
+  for( int i = 0; i< contours_indices.size(); i++ )
+  {
+    cv::Scalar color = cv::Scalar( RANDOM_NUM_GEN.uniform(0, 255), RANDOM_NUM_GEN.uniform(0,255), RANDOM_NUM_GEN.uniform(0,255) );
+    double area = cv::contourArea(contours_indices[i]);
+    double arc_length = cv::arcLength(contours_indices[i], false);
+    cv::drawContours( drawing, contours_indices, i, color, 2, 8, hierarchy, 0, cv::Point() );
+    std::string contour_summary = boost::str(boost::format("c[%i]: s: %i, area: %f, arc %f; (p0: %i, pf: %i); h: %i") %
+                                    i % contours_indices[i].size() % area % arc_length %
+                                    contours_indices[i].front() % contours_indices[i].back() % hierarchy[i]);
+
+  }
+  updateDebugWindow(drawing);
+
+  output = drawing.clone();
+  LOG4CXX_DEBUG(logger_,"Completed 2D analysis");
+  return true;
+}
+
+bool RegionDetector::compute2d(cv::Mat input, cv::Mat& output) const
+{
+  namespace ph = std::placeholders;
+  using Func2D = std::function<region_detection_core::RegionDetector::Result (cv::Mat , cv::Mat& ) >;
+
   bool success = false;
   std::string err_msg;
   output = input;
   const RegionDetectionConfig::OpenCVCfg& config = cfg_->opencv_cfg;
 
-  //  ======================== convert to grayscale ========================
-  cv::cvtColor( output.clone(), output, cv::COLOR_RGB2GRAY );
-  LOG4CXX_ERROR(logger_,"2D analysis: Grayscale Conversion");
-  updateDebugWindow(output);
+  std::map<Methods2D, Func2D> function_mappings = {
+     {Methods2D::GRAYSCALE, std::bind(&RegionDetector::apply2dGrayscale, this, ph::_1, ph::_2)},
+     {Methods2D::INVERT, std::bind(&RegionDetector::apply2dInvert, this, ph::_1, ph::_2)},
+     {Methods2D::THRESHOLD, std::bind(&RegionDetector::apply2dThreshold, this, ph::_1, ph::_2)},
+     {Methods2D::DILATION, std::bind(&RegionDetector::apply2dDilation, this, ph::_1, ph::_2)},
+     {Methods2D::EROSION, std::bind(&RegionDetector::apply2dErosion, this, ph::_1, ph::_2)},
+     {Methods2D::CANNY, std::bind(&RegionDetector::apply2dCanny, this, ph::_1, ph::_2)},
+     {Methods2D::THINNING, [](cv::Mat input, cv::Mat& output) -> Result{
+       input.copyTo(output);
+       thinningGuoHall(output);
+       }
+     },
+     {Methods2D::RANGE, std::bind(&RegionDetector::apply2dRange, this, ph::_1, ph::_2)},
+     {Methods2D::HSV, std::bind(&RegionDetector::apply2dHSV, this, ph::_1, ph::_2)},
+     {Methods2D::EQUALIZE_HIST_YUV, std::bind(&RegionDetector::apply2dEqualizeHistYUV, this, ph::_1, ph::_2)},
+     {Methods2D::EQUALIZE_HIST, std::bind(&RegionDetector::apply2dEqualizeHist, this, ph::_1, ph::_2)},
+     {Methods2D::CLAHE, std::bind(&RegionDetector::apply2dCLAHE, this, ph::_1, ph::_2)}
+  };
 
-  // ======================== inverting ========================
-  if(config.invert_image)
+  for(std::string& method_name : cfg_->opencv_cfg.methods)
   {
-    cv::Mat inverted = cv::Scalar_<uint8_t>(255) - output;
-    output = inverted.clone();
-    LOG4CXX_ERROR(logger_,"2D analysis: Inversion");
-    updateDebugWindow(output);
-  }
-
-  //  ======================== dilating ========================
-  if(config.dilation.enable)
-  {
-    // check values
-    if(config.dilation.kernel_size <= 0)
+    if(METHOD_CODES_MAPPINGS.count(method_name) > 0)
     {
-      success = false;
-      err_msg = "invalid dilation size";
-      LOG4CXX_ERROR(logger_,err_msg)
-      return Result(success,err_msg);
+      try
+      {
+        Result res = function_mappings.at(METHOD_CODES_MAPPINGS.at(method_name))(input,output);
+        if(!res)
+        {
+          return res;
+        }
+        input = output;
+        updateDebugWindow(output);
+      }
+      catch(cv::Exception& e)
+      {
+        LOG4CXX_ERROR(logger_,"Operation "<< method_name <<" failed with error "<< e.what());
+      }
     }
-
-    // select dilation type
-    if(DILATION_TYPES.count(config.dilation.elem) == 0)
+    else
     {
-      success = false;
-      err_msg = "invalid dilation element";
-      LOG4CXX_ERROR(logger_,err_msg)
-      return Result(success,err_msg);
+      std::string err_msg = boost::str(boost::format("2D Method %s is not valid") % method_name);
+      LOG4CXX_ERROR(logger_,err_msg);
     }
-    int dilation_type = DILATION_TYPES.at(config.dilation.elem);
-    cv::Mat element = cv::getStructuringElement( dilation_type,
-                         cv::Size( 2*config.dilation.kernel_size + 1, 2*config.dilation.kernel_size+1 ),
-                         cv::Point( config.dilation.kernel_size, config.dilation.kernel_size ) );
-    cv::dilate( output.clone(), output, element );
-    LOG4CXX_ERROR(logger_,"2D analysis: Dilation");
-    updateDebugWindow(output);
   }
+  return true;
+}
 
-  //  ======================== Threshold ========================
-  if(config.threshold.enable)
-  {
-    cv::threshold( output.clone(), output, config.threshold.value, config.threshold.MAX_BINARY_VALUE,
-                   config.threshold.type );
-    LOG4CXX_ERROR(logger_,"2D analysis: threshold with value of "<< config.threshold.value);
-    updateDebugWindow(output);
-  }
-
-  //  ======================== Canny Edge Detection ========================
-  if(config.canny.enable)
-  {
-    cv::Mat detected_edges;
-    int aperture_size = 2 * config.canny.aperture_size + 1;
-    aperture_size = aperture_size < 3  ? 3 : aperture_size;
-    cv::Canny( output.clone(), detected_edges, config.canny.lower_threshold, config.canny.upper_threshold, aperture_size );
-    output = detected_edges.clone();
-    LOG4CXX_ERROR(logger_,"2D analysis: Canny");
-    updateDebugWindow(output);
-  }
-
-  // thining
-  thinningGuoHall(output);
-  updateDebugWindow(output);
-
-  //  ======================== Contour Detection ========================
-
-  std::vector<cv::Vec4i> hierarchy;
-  cv::findContours(output.clone(), contours_indices, hierarchy, config.contour.mode, config.contour.method);
-
-  cv::Mat drawing = cv::Mat::zeros( output.size(), CV_8UC3 );
-  LOG4CXX_INFO(logger_,"Contour analysis found "<< contours_indices.size() << "contours");
-  for( int i = 0; i< contours_indices.size(); i++ )
-  {
-   cv::Scalar color = cv::Scalar( RANDOM_NUM_GEN.uniform(0, 255), RANDOM_NUM_GEN.uniform(0,255), RANDOM_NUM_GEN.uniform(0,255) );
-   double area = cv::contourArea(contours_indices[i]);
-   double arc_length = cv::arcLength(contours_indices[i], false);
-   cv::drawContours( drawing, contours_indices, i, color, 2, 8, hierarchy, 0, cv::Point() );
-   std::string contour_summary = boost::str(boost::format("c[%i]: s: %i, area: %f, arc %f; (p0: %i, pf: %i); h: %i") %
-                                    i % contours_indices[i].size() % area % arc_length %
-                                    contours_indices[i].front() % contours_indices[i].back() % hierarchy[i]);
-   LOG4CXX_INFO(logger_,contour_summary);
-   LOG4CXX_ERROR(logger_,"2D analysis: Contour "<< i);
-   updateDebugWindow(drawing);
-  }
-
-  output = drawing.clone();
-  LOG4CXX_DEBUG(logger_,"Completed 2D analysis");
-  return Result(true);
+bool RegionDetector::compute2d(cv::Mat input, cv::Mat& output, std::vector<std::vector<cv::Point> >& contours_indices) const
+{
+  return compute2dContours(input, contours_indices, output);
 }
 
 bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
@@ -629,9 +866,9 @@ bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
     window_counter_++;
 
     // ============================== Open CV =================================== //
-    std::vector<std::vector<cv::Point> > contours_indices;
     LOG4CXX_DEBUG(logger_,"Computing 2d contours");
     cv::Mat output;
+    std::vector<std::vector<cv::Point> > contours_indices;
     res = compute2dContours(data.image, contours_indices, output);
     regions.images.push_back(output);
     if(!res)
