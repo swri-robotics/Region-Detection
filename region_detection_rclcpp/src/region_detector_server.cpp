@@ -214,7 +214,7 @@ public:
     region_markers_pub_ =
         node->create_publisher<visualization_msgs::msg::MarkerArray>(REGION_MARKERS_TOPIC, rclcpp::QoS(1));
 
-    // check parameters
+    // run this for verification of parameters
     loadRegionDetectionConfig();
   }
 
@@ -223,62 +223,8 @@ public:
 private:
   region_detection_core::RegionDetectionConfig loadRegionDetectionConfig()
   {
-    region_detection_core::RegionDetectionConfig cfg;
-
-    // opencv parameters
-    const std::string opencv_param_ns = "config_opencv.";
-    cfg.opencv_cfg.invert_image = node_->get_parameter(opencv_param_ns + "invert_image").as_bool();
-    cfg.opencv_cfg.debug_mode_enable = node_->get_parameter(opencv_param_ns + "debug_mode_enable").as_bool();
-    cfg.opencv_cfg.debug_window_name = node_->get_parameter(opencv_param_ns + "debug_window_name").as_string();
-    cfg.opencv_cfg.debug_wait_key = node_->get_parameter(opencv_param_ns + "debug_wait_key").as_bool();
-
-    cfg.opencv_cfg.threshold.enable = node_->get_parameter(opencv_param_ns + "threshold.enable").as_bool();
-    cfg.opencv_cfg.threshold.value = node_->get_parameter(opencv_param_ns + "threshold.value").as_int();
-    cfg.opencv_cfg.threshold.type = node_->get_parameter(opencv_param_ns + "threshold.type").as_int();
-
-    cfg.opencv_cfg.dilation.enable = node_->get_parameter(opencv_param_ns + "dilation.enable").as_bool();
-    cfg.opencv_cfg.dilation.elem = node_->get_parameter(opencv_param_ns + "dilation.elem").as_int();
-    cfg.opencv_cfg.dilation.kernel_size = node_->get_parameter(opencv_param_ns + "dilation.kernel_size").as_int();
-
-    cfg.opencv_cfg.canny.enable = node_->get_parameter(opencv_param_ns + "canny.enable").as_bool();
-    cfg.opencv_cfg.canny.lower_threshold = node_->get_parameter(opencv_param_ns + "canny.lower_threshold").as_int();
-    cfg.opencv_cfg.canny.upper_threshold = node_->get_parameter(opencv_param_ns + "canny.upper_threshold").as_int();
-    cfg.opencv_cfg.canny.aperture_size = node_->get_parameter(opencv_param_ns + "canny.aperture_size").as_int();
-
-    cfg.opencv_cfg.contour.mode = node_->get_parameter(opencv_param_ns + "contour.mode").as_int();
-    cfg.opencv_cfg.contour.method = node_->get_parameter(opencv_param_ns + "contour.method").as_int();
-
-    // pcl 2d parameters
-    const std::string pcl2d_param_ns = "config_pcl2d.";
-    cfg.pcl_2d_cfg.downsampling_radius = node_->get_parameter(pcl2d_param_ns + "downsampling_radius").as_double();
-    cfg.pcl_2d_cfg.split_dist = node_->get_parameter(pcl2d_param_ns + "split_dist").as_double();
-    cfg.pcl_2d_cfg.closed_curve_max_dist = node_->get_parameter(pcl2d_param_ns + "closed_curve_max_dist").as_double();
-    cfg.pcl_2d_cfg.simplification_min_points =
-        node_->get_parameter(pcl2d_param_ns + "simplification_min_points").as_int();
-    cfg.pcl_2d_cfg.simplification_alpha = node_->get_parameter(pcl2d_param_ns + "simplification_alpha").as_double();
-
-    // pcl 3d parameters
-    const std::string pcl_params_ns = "config_pcl.";
-    cfg.pcl_cfg.debug_mode_enable = node_->get_parameter(pcl_params_ns + "debug_mode_enable").as_bool();
-    cfg.pcl_cfg.max_merge_dist = node_->get_parameter(pcl_params_ns + "max_merge_dist").as_double();
-    cfg.pcl_cfg.closed_curve_max_dist = node_->get_parameter(pcl_params_ns + "closed_curve_max_dist").as_double();
-    cfg.pcl_cfg.simplification_min_dist = node_->get_parameter(pcl_params_ns + "simplification_min_dist").as_double();
-    cfg.pcl_cfg.min_num_points = node_->get_parameter(pcl_params_ns + "min_num_points").as_int();
-
-    cfg.pcl_cfg.stat_removal.enable = node_->get_parameter(pcl_params_ns + "stat_removal.enable").as_bool();
-    cfg.pcl_cfg.stat_removal.kmeans = node_->get_parameter(pcl_params_ns + "stat_removal.kmeans").as_int();
-    cfg.pcl_cfg.stat_removal.stddev = node_->get_parameter(pcl_params_ns + "stat_removal.stddev").as_double();
-
-    cfg.pcl_cfg.normal_est.kdtree_epsilon =
-        node_->get_parameter(pcl_params_ns + "normal_est.kdtree_epsilon").as_double();
-    cfg.pcl_cfg.normal_est.search_radius = node_->get_parameter(pcl_params_ns + "normal_est.search_radius").as_double();
-    std::vector<double> viewpoint = node_->get_parameter(pcl_params_ns + "normal_est.viewpoint_xyz").as_double_array();
-    cfg.pcl_cfg.normal_est.downsampling_radius =
-        node_->get_parameter(pcl_params_ns + "normal_est.downsampling_radius").as_double();
-
-    std::copy(viewpoint.begin(), viewpoint.end(), cfg.pcl_cfg.normal_est.viewpoint_xyz.begin());
-
-    return cfg;
+    std::string yaml_config_file = node_->get_parameter("region_detection_cfg_file").as_string();
+    return region_detection_core::RegionDetectionConfig::loadFromFile(yaml_config_file);
   }
 
   void publishRegions(const std::string& frame_id, const std::string ns, const std::vector<EigenPose3dVector>& regions)
