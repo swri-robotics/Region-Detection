@@ -81,9 +81,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   ${Eigen3_LIBRARIES}
   ${PCL_LIBRARIES}
   ${Log4cxx_LIBRARY}
-  ${yaml-cpp_LIBRARIES}
+  yaml-cpp
 )
-
 target_include_directories(${PROJECT_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include>")
@@ -95,6 +94,13 @@ target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC
   ${Log4cxx_INCLUDE_DIRS}
   ${yaml-cpp_INCLUDE_DIRS}
 ) 
+
+add_executable(region_detection_test 
+  src/tests/region_detection_test.cpp)
+target_link_libraries(region_detection_test 
+  ${OpenCV_LIBS}
+  ${Boost_LIBRARIES}
+  ${PROJECT_NAME})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
   CXX_STANDARD 14
@@ -117,7 +123,7 @@ install(DIRECTORY include/${PROJECT_NAME}
   PATTERN ".svn" EXCLUDE
 )
 
-install(TARGETS threshold_grayscale_test threshold_in_range_test adaptive_threshold_test 
+install(TARGETS threshold_grayscale_test threshold_in_range_test adaptive_threshold_test region_detection_test
 	DESTINATION bin)
 
 list (APPEND PACKAGE_LIBRARIES ${PROJECT_NAME})
@@ -129,6 +135,10 @@ install(EXPORT ${PROJECT_NAME}-targets
   NAMESPACE ${PROJECT_NAME}:: DESTINATION lib/cmake/${PROJECT_NAME})
 
 install(FILES package.xml DESTINATION share/${PROJECT_NAME})
+
+install(DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}/
+)
   
 # Create cmake config files
 include(CMakePackageConfigHelpers)

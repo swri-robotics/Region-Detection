@@ -200,142 +200,6 @@ visualization_msgs::MarkerArray convertToDottedLineMarker(const std::vector<Eige
   return markers_msgs;
 }
 
-RegionDetectionConfig::OpenCVCfg loadOpenCVParams()
-{
-  ros::NodeHandle ph("~");
-  bool success;
-  std::string param_ns;
-  RegionDetectionConfig::OpenCVCfg cfg;
-
-  // top level parameters
-  ph = ros::NodeHandle("~/config_opencv");
-  success = ph.getParam("invert_image", cfg.invert_image) &&
-    ph.getParam("debug_mode_enable", cfg.debug_mode_enable)&&
-    ph.getParam("debug_window_name", cfg.debug_window_name)&&
-    ph.getParam("debug_wait_key", cfg.debug_wait_key);
-  if(!success)
-  {
-    std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % "top level");
-    throw std::runtime_error(err_msg);
-  }
-
-  param_ns = "threshold";
-  ph = ros::NodeHandle("~/config_opencv/" + param_ns);
-  success =  ph.getParam("enable",cfg.threshold.enable) &&
-     ph.getParam("value",cfg.threshold.value ) &&
-     ph.getParam("type",cfg.threshold.type );
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
-   throw std::runtime_error(err_msg);
-  }
-
-  param_ns = "dilation";
-  ph = ros::NodeHandle("~/config_opencv/" + param_ns);
-  success =  ph.getParam("enable",cfg.dilation.enable) &&
-     ph.getParam("elem",cfg.dilation.elem) &&
-     ph.getParam("kernel_size",cfg.dilation.kernel_size);
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
-   throw std::runtime_error(err_msg);
-  }
-
-  param_ns = "canny";
-  ph = ros::NodeHandle("~/config_opencv/" + param_ns);
-  success =  ph.getParam("enable",cfg.canny.enable) &&
-     ph.getParam("lower_threshold",cfg.canny.lower_threshold) &&
-     ph.getParam("upper_threshold",cfg.canny.upper_threshold) &&
-     ph.getParam("aperture_size",cfg.canny.aperture_size);
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
-   throw std::runtime_error(err_msg);
-  }
-
-  param_ns = "contour";
-  ph = ros::NodeHandle("~/config_opencv/" + param_ns);
-  success =  ph.getParam("mode",cfg.contour.mode) &&
-     ph.getParam("method",cfg.contour.method);
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
-   throw std::runtime_error(err_msg);
-  }
-
-  return cfg;
-}
-
-RegionDetectionConfig::PCL2DCfg loadPCL2DParams()
-{
-  RegionDetectionConfig::PCL2DCfg cfg;
-  ros::NodeHandle ph("~");
-  bool success;
-  std::string param_ns;
-
-  ph = ros::NodeHandle("~/config_pcl2d");
-  success =  ph.getParam("downsampling_radius",cfg.downsampling_radius) &&
-     ph.getParam("split_dist",cfg.split_dist ) &&
-     ph.getParam("closed_curve_max_dist",cfg.closed_curve_max_dist ) &&
-     ph.getParam("simplification_min_points",cfg.simplification_min_points ) &&
-     ph.getParam("simplification_alpha",cfg.simplification_alpha );
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % "config_pcl2d top level");
-   throw std::runtime_error(err_msg);
-  }
-  return cfg;
-}
-
-RegionDetectionConfig::PCLCfg loadPCLParams()
-{
-  RegionDetectionConfig::PCLCfg cfg;
-  ros::NodeHandle ph("~");
-  bool success;
-  std::string param_ns;
-
-  // top level parameters
-  ph = ros::NodeHandle("~/config_pcl");
-  success =  ph.getParam("debug_mode_enable",cfg.debug_mode_enable) &&
-     ph.getParam("max_merge_dist",cfg.max_merge_dist ) &&
-     ph.getParam("closed_curve_max_dist",cfg.closed_curve_max_dist ) &&
-     ph.getParam("simplification_min_dist",cfg.simplification_min_dist ) &&
-	 ph.getParam("split_dist",cfg.split_dist ) &&
-     ph.getParam("min_num_points",cfg.min_num_points );
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % "top level");
-   throw std::runtime_error(err_msg);
-  }
-
-  param_ns = "stat_removal";
-  ph = ros::NodeHandle("~/config_pcl/" + param_ns);
-  success =  ph.getParam("enable",cfg.stat_removal.enable) &&
-      ph.getParam("kmeans",cfg.stat_removal.kmeans) &&
-     ph.getParam("stddev",cfg.stat_removal.stddev );
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
-   throw std::runtime_error(err_msg);
-  }
-
-  param_ns = "normal_est";
-  std::vector<double> viewpoint_vals(6);
-  ph = ros::NodeHandle("~/config_pcl/" + param_ns);
-  success =  ph.getParam("kdtree_epsilon",cfg.normal_est.kdtree_epsilon) &&
-      ph.getParam("search_radius",cfg.normal_est.search_radius) &&
-      ph.getParam("viewpoint_xyz",viewpoint_vals) &&
-      ph.getParam("downsampling_radius",cfg.normal_est.downsampling_radius) ;
-  std::copy(viewpoint_vals.begin(), viewpoint_vals.end(), cfg.normal_est.viewpoint_xyz.begin());
-  if(!success)
-  {
-   std::string err_msg = boost::str(boost::format("Failed to load \"%s\" parameters") % param_ns);
-   throw std::runtime_error(err_msg);
-  }
-
-  return cfg;
-}
-
 RegionDetector::DataBundleVec loadData()
 {
   using namespace XmlRpc;
@@ -423,15 +287,21 @@ int main(int argc, char** argv)
   using PointType = pcl::PointXYZRGB;
 
   ros::init(argc, argv, "detect_regions_demo");
-  ros::NodeHandle nh;
+  ros::NodeHandle nh, ph("~");
   ros::AsyncSpinner spinner(2);
   spinner.start();
 
+  // load configuration
+  std::string yaml_config_file;
+  const std::string yaml_cfg_param = "region_detection_cfg_file";
+  if(!ph.getParam(yaml_cfg_param, yaml_config_file))
+  {
+    ROS_ERROR("Failed to load \"%s\" parameter", yaml_cfg_param.c_str());
+    return false;
+  }
+
   // getting configuration parameters
-  RegionDetectionConfig cfg;
-  cfg.opencv_cfg = loadOpenCVParams();
-  cfg.pcl_2d_cfg = loadPCL2DParams();
-  cfg.pcl_cfg = loadPCLParams();
+  RegionDetectionConfig cfg = RegionDetectionConfig::loadFromFile(yaml_config_file);
 
   ROS_INFO("Loaded configuration parameters");
 

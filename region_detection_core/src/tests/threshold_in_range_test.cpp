@@ -24,12 +24,17 @@ static void updateImage()
   Mat inverted, frame_HSV, frame_threshold;
 
   // inverting
-  inverted = ~im_frame;
+  //inverted = ~im_frame;
+  inverted = im_frame;
 
   // Convert from BGR to HSV colorspace
   cvtColor(inverted, frame_HSV, COLOR_BGR2HSV);
 
 
+
+  decltype(frame_HSV) dilation_dst = frame_HSV;
+
+/*
   int dilation_type = 0;
   if( dilation_elem == 0 ){ dilation_type = MORPH_RECT; }
   else if( dilation_elem == 1 ){ dilation_type = MORPH_CROSS; }
@@ -37,8 +42,8 @@ static void updateImage()
   Mat element = getStructuringElement( dilation_type,
                        Size( 2*dilation_size + 1, 2*dilation_size+1 ),
                        Point( dilation_size, dilation_size ) );
-  decltype(frame_HSV) dilation_dst;
   dilate( frame_HSV, dilation_dst, element );
+*/
 
 
   // Detect the object based on HSV Range Values

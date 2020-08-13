@@ -37,6 +37,8 @@
 #include "region_detection_core/region_crop.h"
 
 #include <pcl/impl/instantiate.hpp>
+#include <pcl/common/centroid.h>
+#include <pcl/common/transforms.h>
 #include <pcl/ModelCoefficients.h>
 #include <pcl/features/moment_of_inertia_estimation.h>
 #include <pcl/filters/project_inliers.h>
@@ -249,6 +251,28 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromUserVector(const EigenP
   return planar_hull;
 }
 
+template<typename PointT>
+void scaleCloud(const double scale_factor, typename pcl::PointCloud<PointT>& cloud)
+{
+  Eigen::Vector4f centroid;
+  auto demeaned_cloud = cloud;
+  pcl::demeanPointCloud(cloud,centroid, demeaned_cloud);
+
+  // scaling all points now
+  for(std::size_t i = 0; i < demeaned_cloud.size(); i++)
+  {
+    PointT p = demeaned_cloud[i];
+    p.x = scale_factor * p.x;
+    p.y = scale_factor * p.y;
+    p.z = scale_factor * p.z;
+    demeaned_cloud[i] = p;
+  }
+
+  // transforming demeaned cloud back to original centroid
+  Eigen::Affine3f transform = pcl::getTransformation(centroid.x(), centroid.y(), centroid.z(), 0, 0, 0);
+  pcl::transformPointCloud(demeaned_cloud,cloud, transform);
+}
+
 
 namespace region_detection_core
 {
@@ -315,6 +339,8 @@ void RegionCrop<PointT>::setInput(const typename pcl::PointCloud<PointT>::ConstP
 }
 
 
+
+
 template<typename PointT>
 std::vector<int> region_detection_core::RegionCrop<PointT>::filter(
     bool reverse)
@@ -347,6 +373,9 @@ std::vector<int> region_detection_core::RegionCrop<PointT>::filter(
                                        static_cast<int>(config_.dir_estimation_method));
       throw std::runtime_error(err_msg);
   }
+
+  // scaling planar hull
+  scaleCloud(config_.scale_factor,*planar_hull);
 
   // extracting region within polygon
   PointIndices inlier_indices;

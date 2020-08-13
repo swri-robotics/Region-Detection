@@ -31,7 +31,6 @@ namespace region_detection_core
   {
     struct ThresholdCfg
     {
-      bool enable = false;
       int value = 150;
       int type = cv::ThresholdTypes::THRESH_TRUNC;
 
@@ -40,9 +39,8 @@ namespace region_detection_core
       static const int MAX_BINARY_VALUE = 255;
     };
 
-    struct DilationCfg
+    struct MorphologicalCfg
     {
-      bool enable = true;
       int elem = 0;
       int kernel_size = 1;
 
@@ -52,7 +50,6 @@ namespace region_detection_core
 
     struct CannyCfg
     {
-      bool enable = 1;
       int lower_threshold = 45;
       int upper_threshold = lower_threshold * 3;
       int aperture_size = 1;
@@ -70,6 +67,25 @@ namespace region_detection_core
 
       static const int MAX_MODE = CV_RETR_TREE;
       static const int MAX_METHOD = CV_CHAIN_APPROX_TC89_KCOS;
+    };
+
+    struct RangeCfg
+    {
+      int low;
+      int high;
+    };
+
+    struct HSVCfg
+    {
+      std::array<int,2> h;
+      std::array<int,2> s;
+      std::array<int,2> v;
+    };
+
+    struct CLAHECfg
+    {
+      double clip_limit;
+      std::array<int,2> tile_grid_size;
     };
   }
 
