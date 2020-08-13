@@ -15,6 +15,8 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+find_package(PCL REQUIRED COMPONENTS io)
+
 # find dependencies
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
@@ -51,6 +53,7 @@ target_include_directories(region_detector_server PUBLIC
     "$<INSTALL_INTERFACE:include>")
 target_include_directories(region_detector_server SYSTEM PUBLIC)
 target_link_libraries(region_detector_server 
+  ${PCL_LIBRARIES}
   region_detection_core::region_detection_core)
 ament_target_dependencies(region_detector_server
   rclcpp rclcpp_components
