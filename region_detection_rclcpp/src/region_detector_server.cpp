@@ -44,6 +44,8 @@
 
 #include <tf2_eigen/tf2_eigen.h>
 
+#include <pcl/io/pcd_io.h>
+
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <region_detection_core/region_detector.h>
@@ -267,6 +269,7 @@ private:
     // converting to input for region detection
     RegionDetector::DataBundleVec data_vec;
     const std::string img_name_prefix = "img_input_";
+    const std::string pcd_file_prefix = "cloud_input_";
     for (std::size_t i = 0; i < request->clouds.size(); i++)
     {
       RegionDetector::DataBundle data;
@@ -274,6 +277,7 @@ private:
       cv_bridge::CvImagePtr img = cv_bridge::toCvCopy(request->images[i], sensor_msgs::image_encodings::RGBA8);
       data.image = img->image;
       cv::imwrite( img_name_prefix + std::to_string(i) + ".jpg", data.image );
+      pcl::io::savePCDFile( pcd_file_prefix + std::to_string(i) + ".pcd", data.cloud_blob);
       data.transform = tf2::transformToEigen(request->transforms[i]);
       data_vec.push_back(data);
     }
