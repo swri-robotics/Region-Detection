@@ -54,6 +54,7 @@ enum class DirectionEstMethods: unsigned int
 struct RegionCropConfig
 {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  double scale_factor = 1.0;
   double plane_dist_threshold = 0.1;
   std::pair<double, double> heigth_limits = std::make_pair(-0.1, 0.1);
   DirectionEstMethods dir_estimation_method = DirectionEstMethods::PLANE_NORMAL;

@@ -79,6 +79,7 @@ private:
   {
     region_detection_core::RegionCropConfig cfg;
     const std::string param_ns = "region_crop.";
+    cfg.scale_factor = node_->get_parameter(param_ns + "scale_factor").as_double();
     cfg.plane_dist_threshold = node_->get_parameter(param_ns + "plane_dist_threshold").as_double();
     double heigth_limits_min = node_->get_parameter(param_ns + "heigth_limits_min").as_double();
     double heigth_limits_max = node_->get_parameter(param_ns + "heigth_limits_max").as_double();
