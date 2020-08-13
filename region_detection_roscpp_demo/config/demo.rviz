@@ -91,6 +91,8 @@ Visualization Manager:
       Namespaces:
         closed_regions_axes1: false
         closed_regions_lines1: true
+        open_regions_axes1: true
+        open_regions_lines1: true
       Queue Size: 100
       Value: true
     - Alpha: 1
@@ -181,16 +183,16 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 0.907037079334259
+      Distance: 1.4484550952911377
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.055195145308971405
-        Y: 0.19856369495391846
-        Z: 0.18982023000717163
+        X: 0.03899062052369118
+        Y: 0.4167930781841278
+        Z: 0.40866175293922424
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
@@ -199,7 +201,7 @@ Visualization Manager:
       Pitch: 0.7847976684570312
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.7385759353637695
+      Yaw: 4.698577880859375
     Saved: ~
 Window Geometry:
   Displays:
@@ -218,4 +220,4 @@ Window Geometry:
     collapsed: true
   Width: 1853
   X: 67
-  Y: 1077
+  Y: 27
