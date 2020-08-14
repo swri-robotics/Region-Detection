@@ -255,7 +255,8 @@ template<typename PointT>
 void scaleCloud(const double scale_factor, typename pcl::PointCloud<PointT>& cloud)
 {
   Eigen::Vector4f centroid;
-  auto demeaned_cloud = cloud;
+  pcl::PointCloud<PointT> demeaned_cloud;
+  pcl::compute3DCentroid(cloud,centroid);
   pcl::demeanPointCloud(cloud,centroid, demeaned_cloud);
 
   // scaling all points now
@@ -272,7 +273,6 @@ void scaleCloud(const double scale_factor, typename pcl::PointCloud<PointT>& clo
   Eigen::Affine3f transform = pcl::getTransformation(centroid.x(), centroid.y(), centroid.z(), 0, 0, 0);
   pcl::transformPointCloud(demeaned_cloud,cloud, transform);
 }
-
 
 namespace region_detection_core
 {

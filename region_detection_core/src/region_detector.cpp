@@ -250,7 +250,7 @@ RegionDetectionConfig RegionDetectionConfig::load(const std::string& yaml_str)
     opencv_cfg.threshold.value = opencv_node["threshold"]["value"].as<int>();
 
     opencv_cfg.canny.lower_threshold = opencv_node["canny"]["lower_threshold"].as<int>();
-    opencv_cfg.canny.upper_threshold = opencv_node["canny"]["lower_threshold"].as<int>();
+    opencv_cfg.canny.upper_threshold = opencv_node["canny"]["upper_threshold"].as<int>();
     opencv_cfg.canny.aperture_size = opencv_node["canny"]["aperture_size"].as<int>();
 
     opencv_cfg.dilation.elem = opencv_node["dilation"]["elem"].as<int>();
