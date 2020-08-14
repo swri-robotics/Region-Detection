@@ -1,5 +1,6 @@
 
 #include <iostream>
+#include <boost/lexical_cast.hpp>
 #include <boost/filesystem.hpp>
 #include <opencv2/highgui.hpp>
 #include "region_detection_core/region_detector.h"
@@ -26,6 +27,12 @@ int main(int argc, char** argv)
     return -1;
   }
 
+  bool compute_contours = false;
+  if(argc == 4)
+  {
+    compute_contours = boost::lexical_cast<bool>(argv[3]);
+  }
+
   std::string config_file = argv[1];
   std::string img_file = argv[2];
 
@@ -42,8 +49,15 @@ int main(int argc, char** argv)
     }
     std::vector<std::vector<cv::Point> > contours_indices;
     cv::Mat input = cv::imread( img_file , cv::IMREAD_COLOR ); // Load an image
-    region_detector.compute2d(input, output, contours_indices);
-    //region_detector.compute2d(input, output);
+    if(compute_contours)
+    {
+      region_detector.compute2d(input, output, contours_indices);
+    }
+    else
+    {
+      region_detector.compute2d(input, output);
+    }
+
     std::cout<<"Pres ESC to exit" << std::endl;
     key = cv::waitKey();
   }
