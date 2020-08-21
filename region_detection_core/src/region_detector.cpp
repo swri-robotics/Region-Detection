@@ -1132,7 +1132,7 @@ bool RegionDetector::compute(const RegionDetector::DataBundleVec &input,
 
   std::string msg = boost::str(boost::format("Found %i closed regions and %i open regions") % regions.closed_regions_poses.size() %
                                regions.open_regions_poses.size() );
-  if(!regions.closed_regions_poses.empty())
+  if(regions.closed_regions_poses.empty())
   {
     LOG4CXX_ERROR(logger_, msg);
   }
@@ -1477,7 +1477,6 @@ RegionDetector::Result RegionDetector::computePoses(pcl::PointCloud<pcl::PointNo
       curve_normals->push_back(p);
     }
 
-    LOG4CXX_DEBUG(logger_,"Computing pose orientation vectors for curve "<< curve_idx << " with "<< curve->size() <<" points");
     EigenPose3dVector curve_poses;
     pcl::PointNormal p1, p2;
     Isometry3d pose;

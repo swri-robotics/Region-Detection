@@ -284,7 +284,7 @@ private:
 
     // region detection
     RegionDetectionConfig config = loadRegionDetectionConfig();
-    RegionDetector region_detector(config, RegionDetector::createDefaultDebugLogger("RD-Debug"));
+    RegionDetector region_detector(config);
     RegionDetector::RegionResults region_detection_results;
     if (!region_detector.compute(data_vec, region_detection_results))
     {
