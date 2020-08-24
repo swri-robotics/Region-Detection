@@ -33,7 +33,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #include <rclcpp/rclcpp.hpp>
 
 #include <region_detection_msgs/srv/detect_regions.hpp>
@@ -197,21 +196,19 @@ convertToDottedLineMarker(const std::vector<EigenPose3dVector>& path,
 class RegionDetectorServer
 {
 public:
-  RegionDetectorServer(std::shared_ptr<rclcpp::Node> node) :
-      node_(node),
-      logger_(node->get_logger()),
-      marker_pub_timer_(nullptr)
+  RegionDetectorServer(std::shared_ptr<rclcpp::Node> node)
+    : node_(node), logger_(node->get_logger()), marker_pub_timer_(nullptr)
   {
     // load parameters
 
     // creating service
-    detect_regions_server_ =
-        node->create_service<region_detection_msgs::srv::DetectRegions>(DETECT_REGIONS_SERVICE,
-                                                           std::bind(&RegionDetectorServer::detectRegionsCallback,
-                                                                     this,
-                                                                     std::placeholders::_1,
-                                                                     std::placeholders::_2,
-                                                                     std::placeholders::_3));
+    detect_regions_server_ = node->create_service<region_detection_msgs::srv::DetectRegions>(
+        DETECT_REGIONS_SERVICE,
+        std::bind(&RegionDetectorServer::detectRegionsCallback,
+                  this,
+                  std::placeholders::_1,
+                  std::placeholders::_2,
+                  std::placeholders::_3));
 
     region_markers_pub_ =
         node->create_publisher<visualization_msgs::msg::MarkerArray>(REGION_MARKERS_TOPIC, rclcpp::QoS(1));
@@ -233,7 +230,7 @@ private:
   {
     using namespace std::chrono_literals;
 
-    if(marker_pub_timer_)
+    if (marker_pub_timer_)
     {
       marker_pub_timer_->cancel();
     }
@@ -251,10 +248,8 @@ private:
       m = convertToDottedLineMarker({ poses }, frame_id, ns + std::to_string(id));
       region_markers.markers.insert(region_markers.markers.end(), m.markers.begin(), m.markers.end());
     }
-    marker_pub_timer_ = node_->create_wall_timer(500ms, [this, region_markers]() -> void {
-     region_markers_pub_->publish(region_markers);
-    });
-
+    marker_pub_timer_ = node_->create_wall_timer(
+        500ms, [this, region_markers]() -> void { region_markers_pub_->publish(region_markers); });
   }
 
   void detectRegionsCallback(const std::shared_ptr<rmw_request_id_t> request_header,
@@ -276,8 +271,8 @@ private:
       pcl_conversions::toPCL(request->clouds[i], data.cloud_blob);
       cv_bridge::CvImagePtr img = cv_bridge::toCvCopy(request->images[i], sensor_msgs::image_encodings::RGBA8);
       data.image = img->image;
-      cv::imwrite( img_name_prefix + std::to_string(i) + ".jpg", data.image );
-      pcl::io::savePCDFile( pcd_file_prefix + std::to_string(i) + ".pcd", data.cloud_blob);
+      cv::imwrite(img_name_prefix + std::to_string(i) + ".jpg", data.image);
+      pcl::io::savePCDFile(pcd_file_prefix + std::to_string(i) + ".pcd", data.cloud_blob);
       data.transform = tf2::transformToEigen(request->transforms[i]);
       data_vec.push_back(data);
     }
@@ -298,10 +293,10 @@ private:
     publishRegions(
         request->transforms.front().header.frame_id, CLOSED_REGIONS_NS, region_detection_results.closed_regions_poses);
 
-    for(const EigenPose3dVector& region : region_detection_results.closed_regions_poses)
+    for (const EigenPose3dVector& region : region_detection_results.closed_regions_poses)
     {
       geometry_msgs::msg::PoseArray region_poses;
-      for(const Eigen::Affine3d& pose: region)
+      for (const Eigen::Affine3d& pose : region)
       {
         region_poses.poses.push_back(tf2::toMsg(pose));
       }

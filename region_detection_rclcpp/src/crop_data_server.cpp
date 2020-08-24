@@ -33,8 +33,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
-
 #include <rclcpp/rclcpp.hpp>
 
 #include <region_detection_msgs/srv/crop_data.hpp>
@@ -54,18 +52,16 @@ static const std::string CROP_DATA_SERVICE = "crop_data";
 class CropDataServer
 {
 public:
-  CropDataServer(std::shared_ptr<rclcpp::Node> node) :
-      node_(node),
-      logger_(node->get_logger())
+  CropDataServer(std::shared_ptr<rclcpp::Node> node) : node_(node), logger_(node->get_logger())
   {
     // creating service
     crop_data_server_ =
         node->create_service<region_detection_msgs::srv::CropData>(CROP_DATA_SERVICE,
-                                                           std::bind(&CropDataServer::cropDataCallback,
-                                                                     this,
-                                                                     std::placeholders::_1,
-                                                                     std::placeholders::_2,
-                                                                     std::placeholders::_3));
+                                                                   std::bind(&CropDataServer::cropDataCallback,
+                                                                             this,
+                                                                             std::placeholders::_1,
+                                                                             std::placeholders::_2,
+                                                                             std::placeholders::_3));
 
     // check parameters
     loadRegionCropConfig();
@@ -74,7 +70,6 @@ public:
   ~CropDataServer() {}
 
 private:
-
   region_detection_core::RegionCropConfig loadRegionCropConfig()
   {
     region_detection_core::RegionCropConfig cfg;
@@ -96,8 +91,8 @@ private:
   }
 
   void cropDataCallback(const std::shared_ptr<rmw_request_id_t> request_header,
-                             const std::shared_ptr<region_detection_msgs::srv::CropData::Request> request,
-                             const std::shared_ptr<region_detection_msgs::srv::CropData::Response> response)
+                        const std::shared_ptr<region_detection_msgs::srv::CropData::Request> request,
+                        const std::shared_ptr<region_detection_msgs::srv::CropData::Response> response)
   {
     using namespace region_detection_core;
     using namespace region_detection_msgs::msg;
@@ -115,17 +110,18 @@ private:
       // converting region into datatype
       RegionCrop<pcl::PointXYZ>::EigenPose3dVector crop_region;
       const geometry_msgs::msg::PoseArray& crop_region_poses = request->crop_regions[i];
-      std::transform(crop_region_poses.poses.begin(), crop_region_poses.poses.end(),
-                     std::back_inserter(crop_region),[](
-          const geometry_msgs::msg::Pose& pose){
-        Eigen::Isometry3d eig_pose;
-        tf2::fromMsg(pose,eig_pose);
-        return eig_pose;
-      });
+      std::transform(crop_region_poses.poses.begin(),
+                     crop_region_poses.poses.end(),
+                     std::back_inserter(crop_region),
+                     [](const geometry_msgs::msg::Pose& pose) {
+                       Eigen::Isometry3d eig_pose;
+                       tf2::fromMsg(pose, eig_pose);
+                       return eig_pose;
+                     });
 
       PoseSet cropped_dataset;
       region_crop.setRegion(crop_region);
-      for(std::size_t j = 0; j <  request->input_data.size(); j++)
+      for (std::size_t j = 0; j < request->input_data.size(); j++)
       {
         const geometry_msgs::msg::PoseArray& segment_poses = request->input_data[j];
 
@@ -193,5 +189,3 @@ int main(int argc, char** argv)
   rclcpp::spin(node);
   return 0;
 }
-
-

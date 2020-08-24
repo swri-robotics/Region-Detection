@@ -64,57 +64,52 @@ static const std::string DEFAULT_FRAME_ID = "world";
 
 namespace selection_colors_rgba
 {
-  using RGBA = std::tuple<double, double, double, double>;
-  static const RGBA SELECTED = {1.0, 1.0, 0.0, 1};
-  static const RGBA UNSELECTED = {0.3, 0.3, 0.3, 1};
-}
+using RGBA = std::tuple<double, double, double, double>;
+static const RGBA SELECTED = { 1.0, 1.0, 0.0, 1 };
+static const RGBA UNSELECTED = { 0.3, 0.3, 0.3, 1 };
+}  // namespace selection_colors_rgba
 
 class InteractiveRegionManager
 {
 public:
-
-  InteractiveRegionManager(std::shared_ptr<rclcpp::Node> node):
-    node_(node),
-    interactive_marker_server_("InteractiveRegionManager", node)
+  InteractiveRegionManager(std::shared_ptr<rclcpp::Node> node)
+    : node_(node), interactive_marker_server_("InteractiveRegionManager", node)
   {
-
     // loading parameters
     region_height_ = node_->get_parameter("region_height").as_double();
 
     // creating service
-    show_selectable_regions_server_ =
-        node->create_service<region_detection_msgs::srv::ShowSelectableRegions>(SHOW_SELECTABLE_REGIONS_SERVICE,
-                                                           std::bind(&InteractiveRegionManager::showSelectableRegionsCallback,
-                                                                     this,
-                                                                     std::placeholders::_1,
-                                                                     std::placeholders::_2,
-                                                                     std::placeholders::_3));
-    get_selected_regions_server_ =
-        node->create_service<region_detection_msgs::srv::GetSelectedRegions>(GET_SELECTED_REGIONS_SERVICE,
-                                                           std::bind(&InteractiveRegionManager::getSelectedRegionsCallback,
-                                                                     this,
-                                                                     std::placeholders::_1,
-                                                                     std::placeholders::_2,
-                                                                     std::placeholders::_3));
+    show_selectable_regions_server_ = node->create_service<region_detection_msgs::srv::ShowSelectableRegions>(
+        SHOW_SELECTABLE_REGIONS_SERVICE,
+        std::bind(&InteractiveRegionManager::showSelectableRegionsCallback,
+                  this,
+                  std::placeholders::_1,
+                  std::placeholders::_2,
+                  std::placeholders::_3));
+    get_selected_regions_server_ = node->create_service<region_detection_msgs::srv::GetSelectedRegions>(
+        GET_SELECTED_REGIONS_SERVICE,
+        std::bind(&InteractiveRegionManager::getSelectedRegionsCallback,
+                  this,
+                  std::placeholders::_1,
+                  std::placeholders::_2,
+                  std::placeholders::_3));
   }
 
-  ~InteractiveRegionManager()
-  {
-
-  }
+  ~InteractiveRegionManager() {}
 
 private:
-
-  void showSelectableRegionsCallback(const std::shared_ptr<rmw_request_id_t> request_header,
-                             const std::shared_ptr<region_detection_msgs::srv::ShowSelectableRegions::Request> request,
-                             const std::shared_ptr<region_detection_msgs::srv::ShowSelectableRegions::Response> response)
+  void showSelectableRegionsCallback(
+      const std::shared_ptr<rmw_request_id_t> request_header,
+      const std::shared_ptr<region_detection_msgs::srv::ShowSelectableRegions::Request> request,
+      const std::shared_ptr<region_detection_msgs::srv::ShowSelectableRegions::Response> response)
   {
     (void)request_header;
     (void)response;
     setRegions(request->selectable_regions, request->start_selected);
   }
 
-  void getSelectedRegionsCallback(const std::shared_ptr<rmw_request_id_t> request_header,
+  void
+  getSelectedRegionsCallback(const std::shared_ptr<rmw_request_id_t> request_header,
                              const std::shared_ptr<region_detection_msgs::srv::GetSelectedRegions::Request> request,
                              const std::shared_ptr<region_detection_msgs::srv::GetSelectedRegions::Response> response)
   {
@@ -126,23 +121,23 @@ private:
   void buttonClickCallback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr& feedback)
   {
     using namespace visualization_msgs::msg;
-    if(feedback->event_type !=  visualization_msgs::msg::InteractiveMarkerFeedback::BUTTON_CLICK)
+    if (feedback->event_type != visualization_msgs::msg::InteractiveMarkerFeedback::BUTTON_CLICK)
     {
       return;
     }
 
     visualization_msgs::msg::InteractiveMarker int_marker;
-    if(!interactive_marker_server_.get(feedback->marker_name, int_marker))
+    if (!interactive_marker_server_.get(feedback->marker_name, int_marker))
     {
-      RCLCPP_WARN(node_->get_logger(),"The marker with id %s was not found", feedback->client_id.c_str());
+      RCLCPP_WARN(node_->get_logger(), "The marker with id %s was not found", feedback->client_id.c_str());
       return;
     }
     bool selected = int_marker.controls.front().markers.front().action == Marker::ADD;
 
     int_marker.controls.front().markers.front().action = !selected ? Marker::ADD : Marker::DELETE;
     std_msgs::msg::ColorRGBA rgba_msg;
-    std::tie(rgba_msg.r, rgba_msg.g, rgba_msg.b, rgba_msg.a) = !selected ? selection_colors_rgba::SELECTED :
-        selection_colors_rgba::UNSELECTED;
+    std::tie(rgba_msg.r, rgba_msg.g, rgba_msg.b, rgba_msg.a) =
+        !selected ? selection_colors_rgba::SELECTED : selection_colors_rgba::UNSELECTED;
     int_marker.controls.front().markers.front().color = rgba_msg;
 
     interactive_marker_server_.insert(int_marker);
@@ -161,24 +156,24 @@ private:
     visualization_msgs::msg::Marker marker;
     marker.scale.x = marker.scale.y = marker.scale.z = 1;
     marker.type = marker.TRIANGLE_LIST;
-    marker.action = selected ? marker.ADD : marker.DELETE; // marking selection flag
-    marker.header.frame_id = regions.front().header.frame_id.empty() ? DEFAULT_FRAME_ID : regions.front().header.frame_id;
+    marker.action = selected ? marker.ADD : marker.DELETE;  // marking selection flag
+    marker.header.frame_id =
+        regions.front().header.frame_id.empty() ? DEFAULT_FRAME_ID : regions.front().header.frame_id;
 
-    std::tie(marker.color.r, marker.color.g, marker.color.b, marker.color.a) = selected ? selection_colors_rgba::SELECTED :
-        selection_colors_rgba::UNSELECTED;
+    std::tie(marker.color.r, marker.color.g, marker.color.b, marker.color.a) =
+        selected ? selection_colors_rgba::SELECTED : selection_colors_rgba::UNSELECTED;
 
     InteractiveMarkerServer::FeedbackCallback button_callback_ = InteractiveMarkerServer::FeedbackCallback(
         boost::bind(&InteractiveRegionManager::buttonClickCallback, this, _1));
 
     // creating triangles
     geometry_msgs::msg::Point p1, p2, p3, p4;
-    for(std::size_t i = 0; i < regions.size(); i++)
+    for (std::size_t i = 0; i < regions.size(); i++)
     {
-
-      RCLCPP_INFO(node_->get_logger(),"Adding region %i with height %f", i , region_height_);
+      RCLCPP_INFO(node_->get_logger(), "Adding region %i with height %f", i, region_height_);
       marker.points.clear();
       geometry_msgs::msg::PoseArray region = regions[i];
-      for(std::size_t j = 1; j < region.poses.size(); j++)
+      for (std::size_t j = 1; j < region.poses.size(); j++)
       {
         // converting to eigen pose
         Eigen::Affine3d pose1, pose2;
@@ -187,28 +182,26 @@ private:
 
         // computing points
         Vector3d eig_point;
-        eig_point = pose1*(0.5 * region_height_ * Vector3d::UnitZ());
+        eig_point = pose1 * (0.5 * region_height_ * Vector3d::UnitZ());
         p1 = tf2::toMsg(eig_point);
 
-        eig_point = pose2*(0.5 * region_height_ * Vector3d::UnitZ());
+        eig_point = pose2 * (0.5 * region_height_ * Vector3d::UnitZ());
         p2 = tf2::toMsg(eig_point);
 
-        eig_point = pose2*(-0.5 * region_height_ * Vector3d::UnitZ());
+        eig_point = pose2 * (-0.5 * region_height_ * Vector3d::UnitZ());
         p3 = tf2::toMsg(eig_point);
 
-        eig_point = pose1*(-0.5 * region_height_ * Vector3d::UnitZ());
+        eig_point = pose1 * (-0.5 * region_height_ * Vector3d::UnitZ());
         p4 = tf2::toMsg(eig_point);
 
         // creating triangles
-        std::vector<geometry_msgs::msg::Point> triangle_points = {p1, p2, p3, p3, p4, p1};
-        std::for_each(triangle_points.begin(), triangle_points.end(),[&marker](
-            const geometry_msgs::msg::Point& p){
+        std::vector<geometry_msgs::msg::Point> triangle_points = { p1, p2, p3, p3, p4, p1 };
+        std::for_each(triangle_points.begin(), triangle_points.end(), [&marker](const geometry_msgs::msg::Point& p) {
           marker.points.push_back(p);
         });
 
-        triangle_points = {p1, p4, p3, p3, p2, p1};
-        std::for_each(triangle_points.begin(), triangle_points.end(),[&marker](
-            const geometry_msgs::msg::Point& p){
+        triangle_points = { p1, p4, p3, p3, p2, p1 };
+        std::for_each(triangle_points.begin(), triangle_points.end(), [&marker](const geometry_msgs::msg::Point& p) {
           marker.points.push_back(p);
         });
       }
@@ -245,13 +238,13 @@ private:
     using namespace visualization_msgs::msg;
 
     std::vector<int> selected_indices;
-    for(std::size_t i = 0; i < interactive_marker_server_.size(); i++)
+    for (std::size_t i = 0; i < interactive_marker_server_.size(); i++)
     {
       std::string id = REGION_ID_PREFIX + std::to_string(i);
       InteractiveMarker int_marker;
-      interactive_marker_server_.get(id,int_marker);
+      interactive_marker_server_.get(id, int_marker);
       bool selected = int_marker.controls.front().markers.front().action == Marker::ADD;
-      if(selected)
+      if (selected)
       {
         selected_indices.push_back(i);
       }
@@ -265,11 +258,9 @@ private:
   rclcpp::Service<region_detection_msgs::srv::ShowSelectableRegions>::SharedPtr show_selectable_regions_server_;
   rclcpp::Service<region_detection_msgs::srv::GetSelectedRegions>::SharedPtr get_selected_regions_server_;
 
-
   // parameters
   double region_height_;
 };
-
 
 int main(int argc, char** argv)
 {
@@ -286,5 +277,3 @@ int main(int argc, char** argv)
   rclcpp::spin(node);
   return 0;
 }
-
-
