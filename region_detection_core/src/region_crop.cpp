@@ -37,6 +37,8 @@
 #include "region_detection_core/region_crop.h"
 
 #include <pcl/impl/instantiate.hpp>
+#include <pcl/common/centroid.h>
+#include <pcl/common/transforms.h>
 #include <pcl/ModelCoefficients.h>
 #include <pcl/features/moment_of_inertia_estimation.h>
 #include <pcl/filters/project_inliers.h>
@@ -50,41 +52,46 @@
 #include <boost/format.hpp>
 #include <boost/make_shared.hpp>
 
-
 static const double EPSILON = 1e-8;
 
+typedef std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d>> EigenPose3dVector_HIDDEN;
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromNormals(std::vector<Eigen::Isometry3d,
-                                                           Eigen::aligned_allocator<Eigen::Isometry3d> > region_3d)
+pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromNormals(EigenPose3dVector_HIDDEN region_3d)
 {
   using namespace pcl;
   using namespace Eigen;
 
-  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared< PointCloud<PointXYZ> >();
+  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared<PointCloud<PointXYZ>>();
 
   // compute plane normal from averages
   pcl::Normal plane_normal;
-  Vector3d normal_vec =std::accumulate(region_3d.begin(),region_3d.end(),Vector3d(0,0,0),[](Vector3d current_normal, Eigen::Isometry3d pose) -> Vector3d{
-    Vector3d pose_normal;
-    pose_normal.array() = pose.linear().col(2);
-    pose_normal += current_normal;
-    return pose_normal;
-  });
+  Vector3d normal_vec = std::accumulate(region_3d.begin(),
+                                        region_3d.end(),
+                                        Vector3d(0, 0, 0),
+                                        [](Vector3d current_normal, Eigen::Isometry3d pose) -> Vector3d {
+                                          Vector3d pose_normal;
+                                          pose_normal.array() = pose.linear().col(2);
+                                          pose_normal += current_normal;
+                                          return pose_normal;
+                                        });
   normal_vec /= region_3d.size();
   normal_vec.normalize();
 
   // compute centroid
-  Vector3d centroid =std::accumulate(region_3d.begin(),region_3d.end(),Vector3d(0,0,0),[](Vector3d current_centroid, const Eigen::Isometry3d& pose){
-    Vector3d region_location;
-    region_location = pose.translation();
-    region_location += current_centroid;
-    return region_location;
-  });
+  Vector3d centroid = std::accumulate(region_3d.begin(),
+                                      region_3d.end(),
+                                      Vector3d(0, 0, 0),
+                                      [](Vector3d current_centroid, const Eigen::Isometry3d& pose) {
+                                        Vector3d region_location;
+                                        region_location = pose.translation();
+                                        region_location += current_centroid;
+                                        return region_location;
+                                      });
   centroid /= region_3d.size();
 
   // defining plane
   double d = -centroid.dot(normal_vec);
-  pcl::ModelCoefficients::Ptr coefficients  = boost::make_shared<pcl::ModelCoefficients>();
+  pcl::ModelCoefficients::Ptr coefficients = boost::make_shared<pcl::ModelCoefficients>();
   coefficients->values.resize(4);
   coefficients->values[0] = normal_vec(0);
   coefficients->values[1] = normal_vec(1);
@@ -93,12 +100,12 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromNormals(std::vector<Eig
 
   // converting to point cloud
   PointCloud<PointXYZ>::Ptr region_cloud_3d = boost::make_shared<PointCloud<PointXYZ>>();
-  std::transform(region_3d.begin(), region_3d.end(),std::back_inserter(*region_cloud_3d),[](
-      const Eigen::Isometry3d& pose){
-    PointXYZ p;
-    p.getArray3fMap() = pose.translation().array().cast<float>();
-    return p;
-  });
+  std::transform(
+      region_3d.begin(), region_3d.end(), std::back_inserter(*region_cloud_3d), [](const Eigen::Isometry3d& pose) {
+        PointXYZ p;
+        p.getArray3fMap() = pose.translation().array().cast<float>();
+        return p;
+      });
 
   // projecting onto plane
   pcl::ProjectInliers<PointXYZ> project_inliers;
@@ -110,22 +117,21 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromNormals(std::vector<Eig
   return planar_hull;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromPlane(const std::vector<Eigen::Isometry3d,
-                                                           Eigen::aligned_allocator<Eigen::Isometry3d> >& region_3d)
+pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromPlane(const EigenPose3dVector_HIDDEN& region_3d)
 {
   using namespace pcl;
   using namespace Eigen;
 
-  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared< PointCloud<PointXYZ> >();
+  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared<PointCloud<PointXYZ>>();
 
   // converting to point cloud
   PointCloud<PointXYZ>::Ptr region_cloud_3d = boost::make_shared<PointCloud<PointXYZ>>();
-  std::transform(region_3d.begin(), region_3d.end(),std::back_inserter(*region_cloud_3d),[](
-      const Eigen::Isometry3d& pose){
-    PointXYZ p;
-    p.getArray3fMap() = pose.translation().array().cast<float>();
-    return p;
-  });
+  std::transform(
+      region_3d.begin(), region_3d.end(), std::back_inserter(*region_cloud_3d), [](const Eigen::Isometry3d& pose) {
+        PointXYZ p;
+        p.getArray3fMap() = pose.translation().array().cast<float>();
+        return p;
+      });
 
   // computing moi
   PointXYZ min_point, max_point, center_point;
@@ -142,12 +148,12 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromPlane(const std::vector
 
   // computing plane
   PointIndices indices;
-  pcl::ModelCoefficients::Ptr coefficients  = boost::make_shared<pcl::ModelCoefficients>();
+  pcl::ModelCoefficients::Ptr coefficients = boost::make_shared<pcl::ModelCoefficients>();
   pcl::SACSegmentation<pcl::PointXYZ> seg;
-  seg.setOptimizeCoefficients (true);
-  seg.setModelType (pcl::SACMODEL_PLANE);
-  seg.setMethodType (pcl::SAC_RANSAC);
-  seg.setDistanceThreshold (distance_threshold);
+  seg.setOptimizeCoefficients(true);
+  seg.setModelType(pcl::SACMODEL_PLANE);
+  seg.setMethodType(pcl::SAC_RANSAC);
+  seg.setDistanceThreshold(distance_threshold);
   seg.setInputCloud(region_cloud_3d);
   seg.segment(indices, *coefficients);
 
@@ -161,22 +167,21 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromPlane(const std::vector
   return planar_hull;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromZVector(const std::vector<Eigen::Isometry3d,
-                                                           Eigen::aligned_allocator<Eigen::Isometry3d> >& region_3d)
+pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromZVector(const EigenPose3dVector_HIDDEN& region_3d)
 {
   using namespace pcl;
   using namespace Eigen;
 
-  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared< PointCloud<PointXYZ> >();
+  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared<PointCloud<PointXYZ>>();
 
   // converting to point cloud
   PointCloud<PointXYZ>::Ptr region_cloud_3d = boost::make_shared<PointCloud<PointXYZ>>();
-  std::transform(region_3d.begin(), region_3d.end(),std::back_inserter(*region_cloud_3d),[](
-      const Eigen::Isometry3d& pose){
-    PointXYZ p;
-    p.getArray3fMap() = pose.translation().array().cast<float>();
-    return p;
-  });
+  std::transform(
+      region_3d.begin(), region_3d.end(), std::back_inserter(*region_cloud_3d), [](const Eigen::Isometry3d& pose) {
+        PointXYZ p;
+        p.getArray3fMap() = pose.translation().array().cast<float>();
+        return p;
+      });
 
   // computing moi
   Eigen::Vector3f center, x_axis, y_axis, z_axis;
@@ -189,7 +194,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromZVector(const std::vect
   // defining plane
   Vector3f normal_vec = z_axis.normalized();
   double d = -center.dot(normal_vec);
-  pcl::ModelCoefficients::Ptr coefficients  = boost::make_shared<pcl::ModelCoefficients>();
+  pcl::ModelCoefficients::Ptr coefficients = boost::make_shared<pcl::ModelCoefficients>();
   coefficients->values.resize(4);
   coefficients->values[0] = normal_vec(0);
   coefficients->values[1] = normal_vec(1);
@@ -206,23 +211,22 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromZVector(const std::vect
   return planar_hull;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromUserVector(const std::vector<Eigen::Isometry3d,
-                                                           Eigen::aligned_allocator<Eigen::Isometry3d> >& region_3d,
-                                                           const Eigen::Vector3d& user_vec)
+pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromUserVector(const EigenPose3dVector_HIDDEN& region_3d,
+                                                                    const Eigen::Vector3d& user_vec)
 {
   using namespace pcl;
   using namespace Eigen;
 
-  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared< PointCloud<PointXYZ> >();
+  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared<PointCloud<PointXYZ>>();
 
   // converting to point cloud
   PointCloud<PointXYZ>::Ptr region_cloud_3d = boost::make_shared<PointCloud<PointXYZ>>();
-  std::transform(region_3d.begin(), region_3d.end(),std::back_inserter(*region_cloud_3d),[](
-     const Eigen::Isometry3d& pose){
-   PointXYZ p;
-   p.getArray3fMap() = pose.translation().array().cast<float>();
-   return p;
-  });
+  std::transform(
+      region_3d.begin(), region_3d.end(), std::back_inserter(*region_cloud_3d), [](const Eigen::Isometry3d& pose) {
+        PointXYZ p;
+        p.getArray3fMap() = pose.translation().array().cast<float>();
+        return p;
+      });
 
   // computing moi
   Eigen::Vector3f center;
@@ -234,7 +238,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromUserVector(const std::v
   // defining plane
   Vector3f normal_vec = user_vec.normalized().cast<float>();
   double d = -center.dot(normal_vec);
-  pcl::ModelCoefficients::Ptr coefficients  = boost::make_shared<pcl::ModelCoefficients>();
+  pcl::ModelCoefficients::Ptr coefficients = boost::make_shared<pcl::ModelCoefficients>();
   coefficients->values.resize(4);
   coefficients->values[0] = normal_vec(0);
   coefficients->values[1] = normal_vec(1);
@@ -251,26 +255,43 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr computePlanarHullFromUserVector(const std::v
   return planar_hull;
 }
 
+template <typename PointT>
+void scaleCloud(const double scale_factor, typename pcl::PointCloud<PointT>& cloud)
+{
+  Eigen::Vector4f centroid;
+  pcl::PointCloud<PointT> demeaned_cloud;
+  pcl::compute3DCentroid(cloud, centroid);
+  pcl::demeanPointCloud(cloud, centroid, demeaned_cloud);
+
+  // scaling all points now
+  for (std::size_t i = 0; i < demeaned_cloud.size(); i++)
+  {
+    PointT p = demeaned_cloud[i];
+    p.x = scale_factor * p.x;
+    p.y = scale_factor * p.y;
+    p.z = scale_factor * p.z;
+    demeaned_cloud[i] = p;
+  }
+
+  // transforming demeaned cloud back to original centroid
+  Eigen::Affine3f transform = pcl::getTransformation(centroid.x(), centroid.y(), centroid.z(), 0, 0, 0);
+  pcl::transformPointCloud(demeaned_cloud, cloud, transform);
+}
 
 namespace region_detection_core
 {
-
-template<typename PointT>
-RegionCrop<PointT>::RegionCrop():
-  input_(nullptr)
+template <typename PointT>
+RegionCrop<PointT>::RegionCrop() : input_(nullptr)
 {
-
 }
 
-template<typename PointT>
+template <typename PointT>
 RegionCrop<PointT>::~RegionCrop()
 {
-
 }
 
-template<typename PointT>
-inline void RegionCrop<PointT>::setRegion(
-    const std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > &closed_region)
+template <typename PointT>
+inline void RegionCrop<PointT>::setRegion(const EigenPose3dVector_HIDDEN& closed_region)
 {
   using namespace Eigen;
   Vector3d p0, pf;
@@ -278,31 +299,31 @@ inline void RegionCrop<PointT>::setRegion(
   pf = closed_region.back().translation();
 
   double diff = (pf - p0).norm();
-  if(diff > EPSILON)
+  if (diff > EPSILON)
   {
     throw std::runtime_error("region end points are too far from each other, region isn't closed");
   }
   closed_region_ = closed_region;
 }
 
-template<typename PointT>
-inline void RegionCrop<PointT>::setConfig(const RegionCropConfig &config)
+template <typename PointT>
+inline void RegionCrop<PointT>::setConfig(const RegionCropConfig& config)
 {
   // check method
-  static const std::vector<DirectionEstMethods> valid_options = {DirectionEstMethods::NORMAL_AVGR,
-                                                    DirectionEstMethods::PLANE_NORMAL,
-                                                    DirectionEstMethods::POSE_Z_AXIS,
-                                                    DirectionEstMethods::USER_DEFINED};
+  static const std::vector<DirectionEstMethods> valid_options = { DirectionEstMethods::NORMAL_AVGR,
+                                                                  DirectionEstMethods::PLANE_NORMAL,
+                                                                  DirectionEstMethods::POSE_Z_AXIS,
+                                                                  DirectionEstMethods::USER_DEFINED };
   DirectionEstMethods method_flag = config.dir_estimation_method;
-  if(std::find(valid_options.begin(), valid_options.end(), method_flag) == valid_options.end())
+  if (std::find(valid_options.begin(), valid_options.end(), method_flag) == valid_options.end())
   {
-    std::string err_msg = boost::str(boost::format("The flag %i is not a supported Direction Estimation Method")
-      % static_cast<int>(config.dir_estimation_method));
+    std::string err_msg = boost::str(boost::format("The flag %i is not a supported Direction Estimation Method") %
+                                     static_cast<int>(config.dir_estimation_method));
     throw std::runtime_error(err_msg);
   }
 
   // check height limits
-  if(config.heigth_limits.first >= config.heigth_limits.second)
+  if (config.heigth_limits.first >= config.heigth_limits.second)
   {
     throw std::runtime_error("Height Limits min value is greater than or equal to max");
   }
@@ -310,27 +331,25 @@ inline void RegionCrop<PointT>::setConfig(const RegionCropConfig &config)
   config_ = config;
 }
 
-template<typename PointT>
-void RegionCrop<PointT>::setInput(const typename pcl::PointCloud<PointT>::ConstPtr &cloud)
+template <typename PointT>
+void RegionCrop<PointT>::setInput(const typename pcl::PointCloud<PointT>::ConstPtr& cloud)
 {
   input_ = cloud;
 }
 
-
-template<typename PointT>
-std::vector<int> region_detection_core::RegionCrop<PointT>::filter(
-    bool reverse)
+template <typename PointT>
+std::vector<int> region_detection_core::RegionCrop<PointT>::filter(bool reverse)
 {
   using namespace pcl;
-  if(!input_)
+  if (!input_)
   {
     throw std::runtime_error("Input cloud pointer is null");
   }
 
   // creating planar hull
-  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared< PointCloud<PointXYZ> >();
+  PointCloud<PointXYZ>::Ptr planar_hull = boost::make_shared<PointCloud<PointXYZ>>();
 
-  switch(config_.dir_estimation_method)
+  switch (config_.dir_estimation_method)
   {
     case DirectionEstMethods::NORMAL_AVGR:
       planar_hull = computePlanarHullFromNormals(closed_region_);
@@ -350,6 +369,9 @@ std::vector<int> region_detection_core::RegionCrop<PointT>::filter(
       throw std::runtime_error(err_msg);
   }
 
+  // scaling planar hull
+  scaleCloud(config_.scale_factor, *planar_hull);
+
   // extracting region within polygon
   PointIndices inlier_indices;
   typename PointCloud<PointT>::Ptr planar_hull_t = boost::make_shared<PointCloud<PointT>>();
@@ -362,13 +384,16 @@ std::vector<int> region_detection_core::RegionCrop<PointT>::filter(
   extract_polygon.segment(inlier_indices);
 
   std::vector<int> indices_vec = inlier_indices.indices;
-  if(reverse)
+  if (reverse)
   {
     std::vector<int> all_indices_vec, diff;
     all_indices_vec.resize(input_->size());
-    std::iota(all_indices_vec.begin(),all_indices_vec.end(),0);
+    std::iota(all_indices_vec.begin(), all_indices_vec.end(), 0);
     std::sort(indices_vec.begin(), indices_vec.end());
-    std::set_difference(all_indices_vec.begin(), all_indices_vec.end(), indices_vec.begin(), indices_vec.end(),
+    std::set_difference(all_indices_vec.begin(),
+                        all_indices_vec.end(),
+                        indices_vec.begin(),
+                        indices_vec.end(),
                         std::inserter(diff, diff.begin()));
     indices_vec = diff;
   }
@@ -376,9 +401,8 @@ std::vector<int> region_detection_core::RegionCrop<PointT>::filter(
   return indices_vec;
 }
 
-#define PCL_INSTANTIATE_RegionCrop(T) \
-  template class PCL_EXPORTS RegionCrop<T>;
+#define PCL_INSTANTIATE_RegionCrop(T) template class PCL_EXPORTS RegionCrop<T>;
 
-PCL_INSTANTIATE(RegionCrop,PCL_XYZ_POINT_TYPES);
+PCL_INSTANTIATE(RegionCrop, PCL_XYZ_POINT_TYPES);
 
 } /* namespace region_detection_core */

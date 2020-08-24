@@ -42,8 +42,7 @@
 
 namespace region_detection_core
 {
-
-enum class DirectionEstMethods: unsigned int
+enum class DirectionEstMethods : unsigned int
 {
   PLANE_NORMAL = 1,
   NORMAL_AVGR,
@@ -53,31 +52,34 @@ enum class DirectionEstMethods: unsigned int
 
 struct RegionCropConfig
 {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  double scale_factor = 1.0;
   double plane_dist_threshold = 0.1;
   std::pair<double, double> heigth_limits = std::make_pair(-0.1, 0.1);
   DirectionEstMethods dir_estimation_method = DirectionEstMethods::PLANE_NORMAL;
   Eigen::Vector3d user_dir = Eigen::Vector3d::UnitZ();
-  Eigen::Vector3d view_point = Eigen::Vector3d(0,0,10.0);
+  Eigen::Vector3d view_point = Eigen::Vector3d(0, 0, 10.0);
 };
 
 template <typename PointT>
 class RegionCrop
 {
 public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  typedef std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > EigenPose3dVector;
 
   RegionCrop();
   virtual ~RegionCrop();
 
   void setConfig(const RegionCropConfig& config);
-  void setRegion(const std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> >& closed_region);
-  void setInput(const typename pcl::PointCloud<PointT>::ConstPtr &cloud);
+  void setRegion(const EigenPose3dVector& closed_region);
+  void setInput(const typename pcl::PointCloud<PointT>::ConstPtr& cloud);
   std::vector<int> filter(bool reverse = false);
 
 private:
-  std::vector<Eigen::Isometry3d, Eigen::aligned_allocator<Eigen::Isometry3d> > closed_region_;
+  EigenPose3dVector closed_region_;
   RegionCropConfig config_;
   typename pcl::PointCloud<PointT>::ConstPtr input_;
-
 };
 
 } /* namespace region_detection_core */

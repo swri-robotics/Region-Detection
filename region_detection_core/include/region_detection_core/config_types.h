@@ -27,85 +27,96 @@
 
 namespace region_detection_core
 {
-  namespace config_2d
-  {
-    struct ThresholdCfg
-    {
-      bool enable = false;
-      int value = 150;
-      int type = cv::ThresholdTypes::THRESH_TRUNC;
+namespace config_2d
+{
+struct ThresholdCfg
+{
+  int value = 150;
+  int type = cv::ThresholdTypes::THRESH_TRUNC;
 
-      static const int MAX_VALUE = 255;
-      static const int MAX_TYPE = cv::ThresholdTypes::THRESH_TOZERO_INV;
-      static const int MAX_BINARY_VALUE = 255;
-    };
+  static const int MAX_VALUE = 255;
+  static const int MAX_TYPE = cv::ThresholdTypes::THRESH_TOZERO_INV;
+  static const int MAX_BINARY_VALUE = 255;
+};
 
-    struct DilationCfg
-    {
-      bool enable = true;
-      int elem = 0;
-      int kernel_size = 1;
+struct MorphologicalCfg
+{
+  int elem = 0;
+  int kernel_size = 1;
 
-      static const int MAX_ELEM = 2;
-      static const int MAX_KERNEL_SIZE = 21;
-    };
+  static const int MAX_ELEM = 2;
+  static const int MAX_KERNEL_SIZE = 21;
+};
 
-    struct CannyCfg
-    {
-      bool enable = 1;
-      int lower_threshold = 45;
-      int upper_threshold = lower_threshold * 3;
-      int aperture_size = 1;
+struct CannyCfg
+{
+  int lower_threshold = 45;
+  int upper_threshold = lower_threshold * 3;
+  int aperture_size = 1;
 
-      static const int MAX_ENABLE = 1;
-      static const int MAX_LOWER_TH = 100;
-      static const int MAX_UPPER_TH = 255;
-      static const int MAX_APERTURE_SIZE = 3;
-    };
+  static const int MAX_ENABLE = 1;
+  static const int MAX_LOWER_TH = 100;
+  static const int MAX_UPPER_TH = 255;
+  static const int MAX_APERTURE_SIZE = 3;
+};
 
-    struct CountourCfg
-    {
-      int mode = CV_RETR_EXTERNAL;
-      int method = CV_CHAIN_APPROX_SIMPLE;
+struct CountourCfg
+{
+  int mode = CV_RETR_EXTERNAL;
+  int method = CV_CHAIN_APPROX_SIMPLE;
 
-      static const int MAX_MODE = CV_RETR_TREE;
-      static const int MAX_METHOD = CV_CHAIN_APPROX_TC89_KCOS;
-    };
-  }
+  static const int MAX_MODE = CV_RETR_TREE;
+  static const int MAX_METHOD = CV_CHAIN_APPROX_TC89_KCOS;
+};
 
-  namespace config_3d
-  {
-    struct StatisticalRemovalCfg
-    {
-      bool enable = true;
-      int kmeans = 50;
-      double stddev = 1.0;
-    };
-    struct DownsampleCfg
-    {
-      bool enable = true;
-      double voxel_leafsize = 0.005;
-    };
+struct RangeCfg
+{
+  int low;
+  int high;
+};
 
-    struct SequencingCfg
-    {
-      double kdtree_epsilon = 1e-5;
-      double search_radius = 0.02;
-    };
+struct HSVCfg
+{
+  std::array<int, 2> h;
+  std::array<int, 2> s;
+  std::array<int, 2> v;
+};
 
-    struct NormalEstimationCfg
-    {
-      double downsampling_radius = 0.01;
-      double search_radius = 0.02;
-      double kdtree_epsilon = 1e-5;
-      std::array<double,3> viewpoint_xyz = {0.0, 0.0, 100.0};
-    };
-  }
-}
+struct CLAHECfg
+{
+  double clip_limit;
+  std::array<int, 2> tile_grid_size;
+};
+}  // namespace config_2d
 
+namespace config_3d
+{
+struct StatisticalRemovalCfg
+{
+  bool enable = true;
+  int kmeans = 50;
+  double stddev = 1.0;
+};
+struct DownsampleCfg
+{
+  bool enable = true;
+  double voxel_leafsize = 0.005;
+};
 
+struct SequencingCfg
+{
+  double kdtree_epsilon = 1e-5;
+  double search_radius = 0.02;
+};
 
-
-
+struct NormalEstimationCfg
+{
+  double downsampling_radius = 0.01;
+  double search_radius = 0.02;
+  double kdtree_epsilon = 1e-5;
+  std::array<double, 3> viewpoint_xyz = { 0.0, 0.0, 100.0 };
+};
+}  // namespace config_3d
+}  // namespace region_detection_core
 
 #endif /* INCLUDE_CONFIG_TYPES_H_ */

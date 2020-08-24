@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="data_dir" default="$(env HOME)/region_detection_data/curved/ameoba"/>
+  <arg name="config_file" default="$(find region_detection_roscpp_demo)/config/region_detect.yaml"/>
+  <arg name="data_dir" default="$(env HOME)/region_detection_data/curved/oval"/>
+  <arg name="data_list_file" default="$(find region_detection_roscpp_demo)/config/data_list.yaml"/>
   <node name="detect_regions_demo" pkg="region_detection_roscpp_demo" type="detect_regions_demo" output="screen">
-  	<rosparam command="load" ns="config_opencv" file="$(find region_detection_roscpp_demo)/config/config2d.yaml"/>
-  	<rosparam command="load" ns="config_pcl2d" file="$(find region_detection_roscpp_demo)/config/config_pcl2d.yaml"/>
-  	<rosparam command="load" ns="config_pcl" file="$(find region_detection_roscpp_demo)/config/config3d.yaml"/>
+	<param name="region_detection_cfg_file" value="$(arg config_file)"/>
   	<param name="data_dir" value="$(arg data_dir)"/>
-  	<rosparam command="load" ns="data" file="$(find region_detection_roscpp_demo)/config/data_list.yaml"/>
+  	<rosparam command="load" ns="data" file="$(arg data_list_file)"/>
   </node>
   
   <node pkg="tf" type="static_transform_publisher" name="results_frame" args="0 0 1.2 0 0 3.14 world results_frame 100" />
