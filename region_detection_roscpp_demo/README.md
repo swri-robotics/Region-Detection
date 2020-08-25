@@ -4,9 +4,10 @@ This package contains a demo application meant to demonstrate how to use the cap
 
 ---
 ### Setup
-- Extract the **region_detection_test_datasets** file
-- CD into the **region_detection_test_datasets** directory
-- Create a shortcut to the extracted directory
+- Download the [region_detection_test_data.zip](https://github.com/swri-robotics/Region-Detection/wiki/region_detection_test_data.zip) file
+- Extract the **region_detection_test_data.zip** file
+- CD into the **region_detection_test_data** directory
+- Create a shortcut to the directory
 	```bash
 	ln -s  $(pwd) $HOME/region_detection_data
 	```
