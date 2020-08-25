@@ -8,7 +8,10 @@
   <author email="jrgnichodevel@gmail.com">Jorge Nicho</author>
   
   <depend>libconsole-bridge-dev</depend>
+  <depend>libyaml-cpp-dev</depend>
+  <depend>libopencv-dev</depend>
+
   <export>
-	<build_type> cmake </build_type>
+	  <build_type> cmake </build_type>	
   </export>
 </package>
