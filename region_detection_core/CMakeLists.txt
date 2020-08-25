@@ -19,6 +19,7 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs highgui)
 find_package(PCL REQUIRED COMPONENTS common filters surface segmentation)
 find_package(Eigen3 REQUIRED)
 find_package(console_bridge REQUIRED)
+find_package(yaml-cpp REQUIRED )
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(yaml_cpp REQUIRED yaml-cpp)
