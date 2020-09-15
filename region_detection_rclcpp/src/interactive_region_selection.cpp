@@ -151,6 +151,11 @@ private:
 
     // clear all interactive markers
     interactive_marker_server_.clear();
+    interactive_marker_server_.applyChanges();
+    if(regions.empty())
+    {
+      return;
+    }
 
     // create template marker
     visualization_msgs::msg::Marker marker;
